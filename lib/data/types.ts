@@ -51,6 +51,7 @@ export interface ApprovalRow {
   requested_at: string;
   resolved_at: string | null;
   resolution_reason: string | null;
+  intent_hash: string | null;
 }
 
 export interface ExecutionRow {
@@ -112,6 +113,10 @@ export interface DelegationRow {
   kill_switch_enabled?: boolean;
   require_verified_merchant?: boolean;
   allowed_domains?: string[];
+  allowed_categories?: string[];
+  blocked_categories?: string[];
+  market_price_tolerance?: number;
+  scenario?: string;
   created_at: string;
   updated_at: string;
 }
@@ -137,6 +142,50 @@ export interface MerchantRow {
   trust_score?: number | null;
   trust_score_source?: string;
   verified?: boolean;
+}
+
+export type ProductCategory =
+  | "software"
+  | "home_appliance"
+  | "diy_tools"
+  | "diy_supplies"
+  | "restaurant_food"
+  | "restaurant_supplies"
+  | "crypto"
+  | "gift_card"
+  | "wire_transfer";
+
+export interface ProductRow {
+  id: string;
+  merchant_id: string;
+  name: string;
+  description: string;
+  price_cents: number;
+  currency: string;
+  recurring: boolean;
+  metadata: Record<string, unknown>;
+  active: boolean;
+  category: ProductCategory;
+  attributes: Record<string, unknown>;
+  market_price_cents: number | null;
+  image_emoji: string | null;
+  created_at?: string;
+}
+
+export interface InventoryItemRow {
+  id: string;
+  principal_id: string;
+  name: string;
+  unit: string;
+  on_hand: number;
+  par_level: number;
+  reorder_point: number;
+  preferred_category: string;
+  search_query: string;
+  reorder_qty: number;
+  last_ordered_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PendingApproval {

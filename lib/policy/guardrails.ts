@@ -6,11 +6,16 @@ export type GuardrailViolation =
   | "CRYPTO_EXFILTRATION_DETECTED"
   | "PRICE_ANOMALY"
   | "MERCHANT_NOT_VERIFIED"
-  | "WEBSITE_NOT_ALLOWED";
+  | "WEBSITE_NOT_ALLOWED"
+  | "CATEGORY_BLOCKED"
+  | "CATEGORY_NOT_ALLOWED"
+  | "PRICE_ABOVE_MARKET";
 
 export interface GuardrailInput {
   agentStatus: "active" | "disabled" | "suspended";
   merchant: { slug: string; domain: string | null; trustScore: number | null; trustSource: string };
+  purchase: { category: string; unitPriceCents: number; quantity: number };
+  productMarketPriceCents: number | null;
   policy: {
     minTrustScore: number;
     trustedDomainOverrides: string[];
@@ -19,6 +24,9 @@ export interface GuardrailInput {
     injectionKillThreshold: number;
     killSwitchEnabled: boolean;
     allowedDomains: string[];
+    blockedCategories: string[];
+    allowedCategories: string[];
+    marketPriceTolerance: number;
   };
   risk: { promptInjection: number; cryptoExfiltration: number; priceAnomaly: number } | null;
 }
@@ -97,6 +105,48 @@ export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
   };
   if (!websiteAllowed) {
     violations.push("WEBSITE_NOT_ALLOWED");
+  }
+
+  const category = input.purchase.category;
+  const blocked = input.policy.blockedCategories;
+  const categoryBlocked = blocked.includes(category);
+  checks.category_blocked = {
+    passed: !categoryBlocked,
+    category,
+    blockedCategories: blocked,
+  };
+  if (categoryBlocked) {
+    violations.push("CATEGORY_BLOCKED");
+  }
+
+  const allowed = input.policy.allowedCategories;
+  const categoryRestricted = allowed.length > 0;
+  const categoryAllowed = !categoryRestricted || allowed.includes(category);
+  checks.category_allowed = {
+    passed: categoryAllowed,
+    category,
+    allowedCategories: allowed,
+    restricted: categoryRestricted,
+  };
+  if (categoryRestricted && !categoryAllowed) {
+    violations.push("CATEGORY_NOT_ALLOWED");
+  }
+
+  const market = input.productMarketPriceCents;
+  let priceAboveMarket = false;
+  if (market !== null && market > 0) {
+    const ceiling = input.policy.marketPriceTolerance * market;
+    priceAboveMarket = input.purchase.unitPriceCents > ceiling;
+  }
+  checks.market_price = {
+    passed: !priceAboveMarket,
+    unitPriceCents: input.purchase.unitPriceCents,
+    marketPriceCents: market,
+    tolerance: input.policy.marketPriceTolerance,
+    ceilingCents: market !== null && market > 0 ? input.policy.marketPriceTolerance * market : null,
+  };
+  if (priceAboveMarket) {
+    violations.push("PRICE_ABOVE_MARKET");
   }
 
   if (input.risk === null) {

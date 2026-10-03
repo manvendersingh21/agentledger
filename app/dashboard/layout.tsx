@@ -40,10 +40,10 @@ export default async function DashboardLayout({
     }));
 
   return (
-    <div className="min-h-screen bg-canvas font-sans text-ink">
+    <div className="min-h-screen overflow-x-hidden bg-canvas font-sans text-ink">
       <KillSwitchBanner userId={principal.id} suspendedAgents={suspendedAgents} />
       <Sidebar email={principal.email} pendingCount={pendingCount}>
-        <main className="mx-auto w-full max-w-7xl">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-7xl">{children}</main>
       </Sidebar>
     </div>
   );

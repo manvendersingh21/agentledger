@@ -32,7 +32,8 @@ export type AuditEventType =
   | "DEMO_RESET"
   | "GUARDRAILS_EVALUATED"
   | "AGENT_KILL_SWITCH_TRIGGERED"
-  | "AGENT_REENABLED";
+  | "AGENT_REENABLED"
+  | "APPROVAL_HASH_MISMATCH";
 
 export interface AppendAuditInput {
   principalId: string;

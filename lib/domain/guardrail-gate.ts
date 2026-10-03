@@ -1,10 +1,45 @@
 // Guardrail gate: external signals (Jev, merchant trust score) in → deterministic guardrail rules out.
 // Runtime-agnostic. A missing/failed signal never auto-approves (see lib/policy/guardrails.ts).
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { canonicalJson, sha256Hex } from "../crypto/audit-chain.ts";
 import { evaluateGuardrails, type GuardrailResult } from "../policy/guardrails.ts";
 import { assessListing, contentHash, type AssessListingInput, type JevAssessment } from "../risk/jev.ts";
 import { appendAuditEvent } from "./audit.ts";
 import type { ProductRow } from "./products.ts";
+
+/** Scenario catalog fields (migration `20261003050000_scenarios.sql`); optional until column exists. */
+export type ScenarioProductRow = ProductRow & {
+  category?: string;
+  market_price_cents?: number | null;
+};
+
+export interface IntentHashInput {
+  principalId: string;
+  agentId: string;
+  productId: string;
+  merchant: string;
+  amountCents: number;
+  currency: string;
+  recurring: boolean;
+  quantity: number;
+  category: string;
+}
+
+/** sha256 hex of canonical intent terms at approval-request time (hash-bound human approval). */
+export async function computeIntentHash(input: IntentHashInput): Promise<string> {
+  const payload = canonicalJson({
+    principalId: input.principalId,
+    agentId: input.agentId,
+    productId: input.productId,
+    merchant: input.merchant,
+    amountCents: input.amountCents,
+    currency: input.currency,
+    recurring: input.recurring,
+    quantity: input.quantity,
+    category: input.category,
+  });
+  return sha256Hex(payload);
+}
 
 export interface RiskSignals {
   promptInjection: number;
@@ -120,6 +155,9 @@ export interface GuardrailPolicyRow {
   kill_switch_enabled?: boolean | null;
   require_verified_merchant?: boolean | null;
   allowed_domains?: string[] | null;
+  blocked_categories?: string[] | null;
+  allowed_categories?: string[] | null;
+  market_price_tolerance?: number | string | null;
 }
 
 export async function getAgentStatus(db: SupabaseClient, agentId: string): Promise<"active" | "disabled" | "suspended"> {
@@ -134,8 +172,9 @@ export function runGuardrails(
   product: ProductRow,
   policy: GuardrailPolicyRow | null,
   risk: RiskSignals | null,
+  purchase: { quantity: number },
 ): GuardrailResult {
-  const result = evaluateGuardrailsFor(agentStatus, product, policy, risk);
+  const result = evaluateGuardrailsFor(agentStatus, product, policy, risk, purchase);
   // Verified Merchant Registry: when the human requires it, unverified merchants are denied.
   const verified = product.merchants.verified === true;
   result.checks.merchant_verified = { passed: verified || !policy?.require_verified_merchant, required: policy?.require_verified_merchant === true, verified };
@@ -143,13 +182,29 @@ export function runGuardrails(
   return result;
 }
 
+export function productCategory(product: ProductRow): string {
+  const row = product as ScenarioProductRow;
+  const c = row.category;
+  return typeof c === "string" && c.length > 0 ? c : "software";
+}
+
+function productMarketPriceCents(product: ProductRow): number | null {
+  const row = product as ScenarioProductRow;
+  const v = row.market_price_cents;
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function evaluateGuardrailsFor(
   agentStatus: "active" | "disabled" | "suspended",
   product: ProductRow,
   policy: GuardrailPolicyRow | null,
   risk: RiskSignals | null,
+  purchase: { quantity: number },
 ): GuardrailResult {
   const num = (v: unknown, d: number) => (v === null || v === undefined || Number.isNaN(Number(v)) ? d : Number(v));
+  const defaultBlocked = ["crypto", "gift_card", "wire_transfer"];
   return evaluateGuardrails({
     agentStatus,
     merchant: {
@@ -158,6 +213,12 @@ function evaluateGuardrailsFor(
       trustScore: product.merchants.trust_score === null || product.merchants.trust_score === undefined ? null : Number(product.merchants.trust_score),
       trustSource: product.merchants.trust_score_source ?? "unavailable",
     },
+    purchase: {
+      category: productCategory(product),
+      unitPriceCents: product.price_cents,
+      quantity: purchase.quantity,
+    },
+    productMarketPriceCents: productMarketPriceCents(product),
     policy: {
       minTrustScore: num(policy?.min_trust_score, 95),
       trustedDomainOverrides: policy?.trusted_domain_overrides ?? [],
@@ -166,6 +227,9 @@ function evaluateGuardrailsFor(
       injectionKillThreshold: num(policy?.injection_kill_threshold, 0.9),
       killSwitchEnabled: policy?.kill_switch_enabled ?? true,
       allowedDomains: policy?.allowed_domains ?? [],
+      blockedCategories: policy?.blocked_categories ?? defaultBlocked,
+      allowedCategories: policy?.allowed_categories ?? [],
+      marketPriceTolerance: num(policy?.market_price_tolerance, 1.5),
     },
     risk: risk ? { promptInjection: risk.promptInjection, cryptoExfiltration: risk.cryptoExfiltration, priceAnomaly: risk.priceAnomaly } : null,
   });

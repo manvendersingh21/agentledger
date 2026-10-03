@@ -9,11 +9,16 @@ const basePolicy: GuardrailInput["policy"] = {
   injectionKillThreshold: 0.9,
   killSwitchEnabled: true,
   allowedDomains: [],
+  blockedCategories: ["crypto", "gift_card", "wire_transfer"],
+  allowedCategories: [],
+  marketPriceTolerance: 1.5,
 };
 
 const baseInput: GuardrailInput = {
   agentStatus: "active",
   merchant: { slug: "acme-api", domain: "acme-api.dev", trustScore: 98, trustSource: "fixture" },
+  purchase: { category: "software", unitPriceCents: 1500, quantity: 1 },
+  productMarketPriceCents: 1500,
   policy: basePolicy,
   risk: { promptInjection: 0.1, cryptoExfiltration: 0.1, priceAnomaly: 0.1 },
 };
@@ -150,5 +155,51 @@ describe("evaluateGuardrails", () => {
     });
     expect(result.violations).toContain("WEBSITE_NOT_ALLOWED");
     expect(result.checks.allowed_websites.passed).toBe(false);
+  });
+
+  it("denies CATEGORY_BLOCKED for blocked categories", () => {
+    const result = evaluateGuardrails({
+      ...baseInput,
+      purchase: { category: "crypto", unitPriceCents: 10000, quantity: 1 },
+    });
+    expect(result.violations).toContain("CATEGORY_BLOCKED");
+  });
+
+  it("denies CATEGORY_NOT_ALLOWED when allowlist is non-empty and category missing", () => {
+    const result = evaluateGuardrails({
+      ...baseInput,
+      purchase: { category: "diy_tools", unitPriceCents: 7900, quantity: 1 },
+      policy: { ...basePolicy, allowedCategories: ["home_appliance"] },
+    });
+    expect(result.violations).toContain("CATEGORY_NOT_ALLOWED");
+  });
+
+  it("allows any non-blocked category when allowed_categories is empty", () => {
+    const result = evaluateGuardrails({
+      ...baseInput,
+      purchase: { category: "restaurant_food", unitPriceCents: 4200, quantity: 2 },
+      policy: { ...basePolicy, allowedCategories: [] },
+    });
+    expect(result.violations).not.toContain("CATEGORY_NOT_ALLOWED");
+  });
+
+  it("denies PRICE_ABOVE_MARKET when unit price exceeds tolerance × market", () => {
+    const result = evaluateGuardrails({
+      ...baseInput,
+      purchase: { category: "software", unitPriceCents: 5000, quantity: 1 },
+      productMarketPriceCents: 1500,
+      policy: { ...basePolicy, marketPriceTolerance: 1.5 },
+    });
+    expect(result.violations).toContain("PRICE_ABOVE_MARKET");
+    expect(result.checks.market_price.passed).toBe(false);
+  });
+
+  it("skips PRICE_ABOVE_MARKET when market price is unknown", () => {
+    const result = evaluateGuardrails({
+      ...baseInput,
+      purchase: { category: "software", unitPriceCents: 999999, quantity: 1 },
+      productMarketPriceCents: null,
+    });
+    expect(result.violations).not.toContain("PRICE_ABOVE_MARKET");
   });
 });

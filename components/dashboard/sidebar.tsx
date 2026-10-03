@@ -7,16 +7,20 @@ import {
   ArrowDownRight,
   BadgeCheck,
   Bot,
+  Boxes,
   ClipboardCheck,
   FileSearch,
   FlaskConical,
   LayoutDashboard,
+  LayoutGrid,
   ShieldAlert,
   Link2,
   LogOut,
   Menu,
+  MessageSquare,
   Receipt,
   X,
+  Plug,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -24,13 +28,17 @@ import { Wordmark } from "@/components/brand/wordmark";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
+  { href: "/dashboard/concierge", label: "Concierge", icon: MessageSquare },
   { href: "/dashboard/agents", label: "Agent", icon: Bot },
   { href: "/dashboard/delegations", label: "Delegation", icon: Link2 },
   { href: "/dashboard/registry", label: "Registry", icon: BadgeCheck },
   { href: "/dashboard/approvals", label: "Approvals", icon: ClipboardCheck, badgeKey: "approvals" as const },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt },
   { href: "/dashboard/audit", label: "Audit Trail", icon: FileSearch },
+  { href: "/dashboard/inventory", label: "Inventory", icon: Boxes },
+  { href: "/dashboard/scenarios", label: "Scenarios", icon: LayoutGrid },
   { href: "/dashboard/playground", label: "Playground", icon: FlaskConical },
+  { href: "/dashboard/connect", label: "Connect", icon: Plug },
   { href: "/dashboard/attack-lab", label: "Attack Lab", icon: ShieldAlert },
 ];
 
@@ -119,8 +127,8 @@ export function Sidebar({ email, pendingCount = 0, children }: SidebarProps) {
   return (
     <>
       {/* Floating pill top bar */}
-      <div className="sticky top-0 z-40 px-3 pt-3 md:px-6">
-        <header className="mx-auto flex h-14 w-full max-w-[1440px] items-center gap-3 rounded-lg border border-line bg-surface px-3 shadow-[0_1px_0_rgba(0,0,0,0.02)] md:px-4">
+      <div className="sticky top-0 z-40 px-2 pt-2 sm:px-3 sm:pt-3 md:px-6">
+        <header className="mx-auto flex h-14 w-full max-w-[1440px] min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-2 shadow-[0_1px_0_rgba(0,0,0,0.02)] sm:gap-3 sm:px-3 md:px-4">
           <button
             type="button"
             className="inline-flex size-9 items-center justify-center rounded border border-line text-ink md:hidden"
@@ -130,7 +138,11 @@ export function Sidebar({ email, pendingCount = 0, children }: SidebarProps) {
           >
             {mobileOpen ? <X className="size-4" /> : <Menu className="size-4" />}
           </button>
-          <Link href="/dashboard" className="flex shrink-0 items-center" aria-label="AgentLedger overview">
+          <Link
+            href="/dashboard"
+            className="flex min-w-0 shrink items-center overflow-hidden"
+            aria-label="AgentLedger overview"
+          >
             <Wordmark />
           </Link>
           <span className="hidden h-5 w-px bg-line sm:block" aria-hidden />
@@ -182,12 +194,12 @@ export function Sidebar({ email, pendingCount = 0, children }: SidebarProps) {
         />
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-[1440px] gap-6 px-3 pb-12 pt-4 md:px-6 md:pt-6">
+      <div className="mx-auto flex w-full max-w-[1440px] min-w-0 gap-4 px-2 pb-[max(3rem,env(safe-area-inset-bottom))] pt-3 sm:gap-6 sm:px-3 sm:pb-12 sm:pt-4 md:px-6 md:pt-6">
         <aside
           className={cn(
-            "fixed bottom-3 left-3 top-[76px] z-50 w-64 rounded-lg border border-line bg-surface p-3 transition-transform",
-            "md:sticky md:top-[88px] md:z-auto md:h-[calc(100vh-112px)] md:w-60 md:shrink-0 md:translate-x-0",
-            mobileOpen ? "translate-x-0" : "-translate-x-[calc(100%+24px)] md:translate-x-0",
+            "fixed bottom-2 left-2 right-2 top-[4.25rem] z-50 max-h-[calc(100dvh-5rem)] w-auto overflow-y-auto rounded-lg border border-line bg-surface p-3 transition-transform sm:bottom-3 sm:left-3 sm:right-auto sm:top-[76px] sm:w-64",
+            "md:sticky md:top-[88px] md:z-auto md:h-[calc(100vh-112px)] md:w-60 md:max-h-none md:shrink-0 md:translate-x-0",
+            mobileOpen ? "translate-x-0" : "-translate-x-[calc(100%+16px)] md:translate-x-0",
           )}
         >
           {nav}

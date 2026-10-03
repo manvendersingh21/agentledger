@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Inbox } from "lucide-react";
 import type { PendingApproval } from "@/lib/data/types";
@@ -9,7 +9,13 @@ import {
   ApprovalCard,
   type ApprovalResolveResponse,
 } from "@/components/approvals/approval-card";
+import {
+  playApprovalChime,
+  vibrateForApproval,
+} from "@/app/dashboard/approvals/approval-sound";
 import { cn } from "@/lib/utils";
+
+const DEFAULT_TITLE = "AgentLedger";
 
 export interface LiveApprovalsProps {
   userId: string;
@@ -18,6 +24,14 @@ export interface LiveApprovalsProps {
   /** Keep resolved cards visible locally before refreshing server data. */
   resolvedHoldMs?: number;
   onApprovalResolved?: (outcome: ApprovalResolveResponse) => void;
+  /** Mobile-first layout for the approvals page (sticky actions, arrival alerts). */
+  mobilePresenter?: boolean;
+}
+
+function isNewPendingApproval(change: LedgerChange): boolean {
+  if (change.table !== "approvals" || change.operation !== "INSERT") return false;
+  const status = change.record?.status;
+  return status === "pending";
 }
 
 export function LiveApprovals({
@@ -26,9 +40,33 @@ export function LiveApprovals({
   compact,
   resolvedHoldMs = 0,
   onApprovalResolved,
+  mobilePresenter = false,
 }: LiveApprovalsProps) {
   const router = useRouter();
   const holdUntilRef = useRef(0);
+  const knownPendingRef = useRef<Set<string>>(new Set(initial.map((p) => p.approval.id)));
+  const [arrivalPulse, setArrivalPulse] = useState(false);
+
+  useEffect(() => {
+    knownPendingRef.current = new Set(initial.map((p) => p.approval.id));
+  }, [initial]);
+
+  useEffect(() => {
+    if (compact) return;
+    const count = initial.length;
+    document.title =
+      count > 0 ? `(${count}) Approval needed — AgentLedger` : DEFAULT_TITLE;
+    return () => {
+      document.title = DEFAULT_TITLE;
+    };
+  }, [compact, initial.length]);
+
+  const notifyArrival = useCallback(() => {
+    setArrivalPulse(true);
+    vibrateForApproval();
+    playApprovalChime();
+    window.setTimeout(() => setArrivalPulse(false), 1200);
+  }, []);
 
   const scheduleRefresh = useCallback(() => {
     if (resolvedHoldMs <= 0) {
@@ -45,12 +83,20 @@ export function LiveApprovals({
 
   const onChange = useCallback(
     (change: LedgerChange) => {
+      if (isNewPendingApproval(change)) {
+        const id = typeof change.record?.id === "string" ? change.record.id : null;
+        if (id && !knownPendingRef.current.has(id)) {
+          knownPendingRef.current.add(id);
+          if (!compact) notifyArrival();
+        }
+      }
+
       if (Date.now() < holdUntilRef.current) return;
       if (change.table === "approvals" || change.table === "action_intents") {
         router.refresh();
       }
     },
-    [router],
+    [compact, notifyArrival, router],
   );
 
   useLedgerRealtime(userId, onChange);
@@ -67,7 +113,7 @@ export function LiveApprovals({
     return (
       <div
         className={cn(
-          "flex flex-col items-center justify-center gap-3 rounded-[6px] border border-dashed border-line bg-surface text-center",
+          "flex w-full max-w-full flex-col items-center justify-center gap-3 rounded-[6px] border border-dashed border-line bg-surface text-center",
           compact ? "px-4 py-8" : "px-6 py-16",
         )}
       >
@@ -85,10 +131,19 @@ export function LiveApprovals({
   }
 
   return (
-    <ul className={compact ? "space-y-3" : "space-y-4"}>
-      {initial.map((item) => (
-        <li key={item.approval.id}>
-          <ApprovalCard item={item} onResolved={handleResolved} />
+    <ul
+      className={cn(
+        compact ? "space-y-3" : "space-y-4",
+        arrivalPulse && mobilePresenter && "motion-safe:animate-pulse",
+      )}
+    >
+      {initial.map((item, index) => (
+        <li key={item.approval.id} className="w-full min-w-0">
+          <ApprovalCard
+            item={item}
+            onResolved={handleResolved}
+            stickyMobileActions={mobilePresenter && index === 0}
+          />
         </li>
       ))}
     </ul>

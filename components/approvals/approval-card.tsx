@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, CheckCircle2, Loader2, X } from "lucide-react";
+import { Check, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import type { PendingApproval } from "@/lib/data/types";
 import type { ExecuteResult } from "@/lib/domain/pipeline";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,20 @@ interface ChecklistItem {
   ok: boolean;
   emphasis?: boolean;
   text: string;
+}
+
+function stripeTestPaymentUrl(providerReference: string | null | undefined): string | null {
+  const ref = providerReference?.trim();
+  if (!ref?.startsWith("pi_")) return null;
+  return `https://dashboard.stripe.com/test/payments/${ref}`;
+}
+
+function paymentIntentIdFromExecution(execution: ExecuteResult | undefined): string | null {
+  if (!execution || execution.status !== "executed") return null;
+  const fromField = execution.stripe_payment_intent_id;
+  if (fromField?.startsWith("pi_")) return fromField;
+  if (execution.provider_reference.startsWith("pi_")) return execution.provider_reference;
+  return null;
 }
 
 function buildPolicyChecklist(item: PendingApproval): ChecklistItem[] {
@@ -79,9 +93,11 @@ function buildPolicyChecklist(item: PendingApproval): ChecklistItem[] {
 export interface ApprovalCardProps {
   item: PendingApproval;
   onResolved?: (outcome: ApprovalResolveResponse) => void;
+  /** Sticky thumb-sized action bar on small screens (first pending card on approvals page). */
+  stickyMobileActions?: boolean;
 }
 
-export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
+export function ApprovalCard({ item, onResolved, stickyMobileActions }: ApprovalCardProps) {
   const { approval, intent, agentName } = item;
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState<"approved" | "denied" | null>(null);
@@ -97,6 +113,11 @@ export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
   const merchantName = intent.payload.merchant_name ?? intent.merchant_slug;
   const checklist = buildPolicyChecklist(item);
   const resolved = outcome !== null || approval.status !== "pending";
+
+  const executed = outcome?.execution?.status === "executed" ? outcome.execution : null;
+  const stripePiId = paymentIntentIdFromExecution(outcome?.execution);
+  const stripeUrl = stripeTestPaymentUrl(stripePiId);
+  const approved = outcome?.approval_status === "approved";
 
   async function submit(decision: "approved" | "denied") {
     if (loading || resolved) return;
@@ -122,22 +143,69 @@ export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
     }
   }
 
-  const executed = outcome?.execution?.status === "executed" ? outcome.execution : null;
+  const actionBar = !resolved ? (
+    <div
+      className={cn(
+        "flex gap-3",
+        stickyMobileActions
+          ? "fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm md:static md:z-auto md:border-t-0 md:bg-transparent md:p-0 md:backdrop-blur-none"
+          : "pt-1",
+      )}
+    >
+      <Button
+        type="button"
+        variant="outline"
+        className={cn(
+          "min-h-14 flex-1 rounded-[4px] border-line bg-surface text-base font-semibold text-ink hover:bg-canvas md:h-12 md:min-h-0 md:flex-none md:px-5 md:text-sm md:font-medium",
+        )}
+        disabled={loading !== null}
+        onClick={() => submit("denied")}
+      >
+        {loading === "denied" ? <Loader2 className="size-5 animate-spin" /> : null}
+        Deny
+      </Button>
+      <Button
+        type="button"
+        className={cn(
+          "min-h-14 flex-[1.2] rounded-[4px] bg-accent text-base font-semibold text-white hover:bg-accent-hover md:hidden",
+        )}
+        disabled={loading !== null}
+        onClick={() => submit("approved")}
+      >
+        {loading === "approved" ? <Loader2 className="size-5 animate-spin" /> : null}
+        Approve
+      </Button>
+      <ArrowButton
+        type="button"
+        variant="primary"
+        size="lg"
+        className="hidden min-h-14 md:inline-flex"
+        disabled={loading !== null}
+        onClick={() => submit("approved")}
+      >
+        {loading === "approved" ? (
+          <Loader2 className="mr-2 inline size-4 animate-spin" />
+        ) : null}
+        Approve {formatCents(intent.amount_cents, intent.currency)}
+      </ArrowButton>
+    </div>
+  ) : null;
 
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-[6px] border bg-surface transition-all duration-300 ease-out",
-        executed ? "border-executed/40" : "border-line",
+        "w-full max-w-full overflow-hidden rounded-[6px] border bg-surface transition-all duration-300 ease-out",
+        executed || approved ? "border-executed/40" : "border-line",
         mounted ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
+        stickyMobileActions && !resolved ? "pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0" : null,
       )}
     >
-      <div className="space-y-5 p-5 md:p-6">
+      <div className="space-y-5 p-4 sm:p-5 md:p-6">
         <header className="space-y-3">
           <p
             className={cn(
               "flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em]",
-              executed
+              executed || approved
                 ? "text-executed"
                 : outcome?.approval_status === "denied"
                   ? "text-ink-2"
@@ -147,7 +215,7 @@ export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
             <span
               className={cn(
                 "inline-block size-1.5 rounded-full",
-                executed
+                executed || approved
                   ? "bg-executed"
                   : outcome?.approval_status === "denied"
                     ? "bg-ink-3"
@@ -155,24 +223,32 @@ export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
               )}
               aria-hidden
             />
-            {executed ? "Executed" : outcome?.approval_status === "denied" ? "Denied" : "Waiting for you"}
+            {executed
+              ? "Executed"
+              : approved
+                ? "Approved"
+                : outcome?.approval_status === "denied"
+                  ? "Denied"
+                  : "Waiting for you"}
           </p>
           <p className="text-[15px] leading-snug text-ink-2">
             <span className="font-medium text-ink">{agentName}</span> wants to spend
           </p>
-          <p className="font-display text-[56px] font-semibold leading-[0.95] tracking-[-0.045em] text-ink tabular-nums">
+          <p
+            className="font-display text-[clamp(2.75rem,12vw,3.5rem)] font-semibold leading-[0.95] tracking-[-0.045em] text-ink tabular-nums sm:text-[56px]"
+          >
             {formatCents(intent.amount_cents, intent.currency)}
           </p>
         </header>
 
         <dl className="grid grid-cols-1 gap-x-6 gap-y-3 border-t border-line pt-4 text-sm sm:grid-cols-2">
-          <div className="space-y-0.5">
+          <div className="min-w-0 space-y-0.5">
             <dt className="text-[11px] uppercase tracking-[0.08em] text-ink-3">Requested action</dt>
             <dd className="font-medium text-ink">Purchase {productName}</dd>
           </div>
-          <div className="space-y-0.5">
+          <div className="min-w-0 space-y-0.5">
             <dt className="text-[11px] uppercase tracking-[0.08em] text-ink-3">Merchant</dt>
-            <dd className="text-ink">{merchantName}</dd>
+            <dd className="break-words text-ink">{merchantName}</dd>
           </div>
           <div className="space-y-0.5">
             <dt className="text-[11px] uppercase tracking-[0.08em] text-ink-3">Amount</dt>
@@ -238,52 +314,51 @@ export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
           </p>
         ) : null}
 
-        {executed ? (
-          <div className="space-y-2 rounded-[6px] border border-executed/30 bg-executed-bg px-4 py-3">
-            <p className="flex items-center gap-2 text-sm font-semibold text-executed">
-              <CheckCircle2 className="size-4" aria-hidden />
-              Payment executed
-            </p>
-            <dl className="grid gap-1 font-mono text-xs text-executed">
-              <div className="flex flex-wrap justify-between gap-2">
-                <dt className="opacity-70">receipt</dt>
-                <dd className="break-all">{executed.receipt_id}</dd>
-              </div>
-              <div className="flex flex-wrap justify-between gap-2">
-                <dt className="opacity-70">provider ref</dt>
-                <dd className="break-all">{executed.provider_reference}</dd>
-              </div>
-            </dl>
+        {approved ? (
+          <div
+            className="space-y-4 rounded-[6px] border border-executed/35 bg-executed-bg px-4 py-6 text-center sm:px-6 sm:py-8"
+            role="status"
+          >
+            <CheckCircle2 className="mx-auto size-12 text-executed sm:size-14" aria-hidden />
+            <div className="space-y-1">
+              <p className="font-display text-[clamp(2rem,10vw,2.75rem)] font-semibold leading-[0.95] tracking-[-0.04em] text-executed tabular-nums">
+                {formatCents(intent.amount_cents, intent.currency)}
+              </p>
+              <p className="text-[17px] font-medium text-ink">{merchantName}</p>
+              <p className="text-sm text-ink-2">
+                {executed ? "Payment executed and recorded in the audit chain." : "Approved — executing payment…"}
+              </p>
+            </div>
+            {stripeUrl ? (
+              <ArrowButton
+                href={stripeUrl}
+                external
+                variant="primary"
+                size="lg"
+                className="mx-auto w-full max-w-sm justify-center sm:w-auto"
+                icon={<ExternalLink className="size-4" aria-hidden />}
+              >
+                View in Stripe
+              </ArrowButton>
+            ) : null}
+            {executed ? (
+              <dl className="mx-auto max-w-md space-y-2 border-t border-executed/20 pt-4 text-left font-mono text-xs text-executed">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <dt className="opacity-70">receipt</dt>
+                  <dd className="break-all text-right">{executed.receipt_id}</dd>
+                </div>
+                <div className="flex flex-wrap justify-between gap-2">
+                  <dt className="opacity-70">provider ref</dt>
+                  <dd className="break-all text-right">{executed.provider_reference}</dd>
+                </div>
+              </dl>
+            ) : null}
           </div>
         ) : null}
 
-        {!resolved ? (
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-12 rounded-[4px] border-line bg-surface px-5 text-ink hover:bg-canvas"
-              disabled={loading !== null}
-              onClick={() => submit("denied")}
-            >
-              {loading === "denied" ? <Loader2 className="size-4 animate-spin" /> : null}
-              Deny
-            </Button>
-            <ArrowButton
-              type="button"
-              variant="primary"
-            size="lg"
-              disabled={loading !== null}
-              onClick={() => submit("approved")}
-            >
-              {loading === "approved" ? (
-                <Loader2 className="mr-2 inline size-4 animate-spin" />
-              ) : null}
-              Approve {formatCents(intent.amount_cents, intent.currency)}
-            </ArrowButton>
-          </div>
-        ) : null}
+        {actionBar && !stickyMobileActions ? actionBar : null}
       </div>
+      {actionBar && stickyMobileActions ? actionBar : null}
     </article>
   );
 }

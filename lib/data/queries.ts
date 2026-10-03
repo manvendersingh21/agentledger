@@ -4,7 +4,7 @@ import { getDomainContext } from "@/lib/domain/server-context";
 import { verifyPrincipalChain } from "@/lib/domain/audit";
 import type {
   AgentRow, ApprovalRow, AuditEventRow, AuditVerification, DelegationRow, ExecutionRow, IntentRow,
-  MerchantRow, Metrics, PendingApproval, PolicyDecisionRow, ReceiptRow,
+  InventoryItemRow, MerchantRow, Metrics, PendingApproval, PolicyDecisionRow, ReceiptRow,
 } from "./types";
 
 /**
@@ -36,6 +36,16 @@ export async function getMerchants(): Promise<MerchantRow[]> {
     .select("id, slug, name, trusted, domain, trust_score, trust_score_source, verified")
     .order("name");
   return (data ?? []) as MerchantRow[];
+}
+
+export async function getInventory(): Promise<InventoryItemRow[]> {
+  const db = await createClient();
+  const { data, error } = await db
+    .from("inventory_items")
+    .select("*")
+    .order("name");
+  if (error) throw new Error(`inventory lookup failed: ${error.message}`);
+  return (data ?? []) as InventoryItemRow[];
 }
 
 export async function getIntents(limit = 100): Promise<(IntentRow & { decision: PolicyDecisionRow | null })[]> {

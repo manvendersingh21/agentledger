@@ -14,7 +14,13 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { Eyebrow } from "@/components/brand/eyebrow";
 import { cn, formatCents } from "@/lib/utils";
 
-type ScenarioId = "prompt-injection" | "parameter-tampering" | "replay";
+type ScenarioId =
+  | "prompt-injection"
+  | "parameter-tampering"
+  | "replay"
+  | "crypto-purchase"
+  | "overpriced"
+  | "approval-tamper";
 
 type PillVariant = "red" | "emerald" | "violet" | "amber" | "sky" | "neutral";
 
@@ -74,6 +80,31 @@ const SCENARIOS: ScenarioDef[] = [
       "Legitimate $15 purchase with your approval, then concurrent and sequential retries.",
     expect: "Expect DUPLICATE BLOCKED",
     note: "Runs a real Stripe test-mode charge of $15 (counts toward the $50 daily limit; use Reset demo on Overview).",
+  },
+  {
+    id: "crypto-purchase",
+    number: "04",
+    title: "Crypto voucher",
+    description:
+      "Agent tries to buy a Bitcoin voucher whose listing contains an injection to unlock wholesale pricing.",
+    expect: "Expect CATEGORY_BLOCKED (+ trust / injection signals)",
+  },
+  {
+    id: "overpriced",
+    number: "05",
+    title: "Market price guard",
+    description:
+      "Trusted restaurant supplier lists frying oil at roughly 3× the reference market price.",
+    expect: "Expect PRICE_ABOVE_MARKET",
+    note: "Apply the Restaurant scenario first so restaura-supply merchants are allowed.",
+  },
+  {
+    id: "approval-tamper",
+    number: "06",
+    title: "Approval tampering",
+    description:
+      "Legitimate Acme purchase awaits your approval; an attacker silently raises the amount before execution.",
+    expect: "Expect APPROVAL_HASH_MISMATCH",
   },
 ];
 
@@ -215,7 +246,7 @@ export function AttackLabClient() {
         </p>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {SCENARIOS.map((scenario) => {
           const isActive = last?.scenario === scenario.id;
           const isLoading = loading === scenario.id;

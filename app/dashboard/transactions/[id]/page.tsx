@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ShieldAlert, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ExternalLink, ShieldAlert, ShieldCheck } from "lucide-react";
 import {
   ensureSetup,
   getAuditVerification,
@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { CodeBlock } from "@/components/ui/code-block";
 import { Badge } from "@/components/ui/badge";
 import { Eyebrow } from "@/components/brand/eyebrow";
+import { ArrowButton } from "@/components/brand/arrow-button";
 import { formatCents } from "@/lib/utils";
 import { LocalDateTime } from "@/components/local-time";
 import type { IntentStatus } from "@/lib/ledger/state-machine";
@@ -68,6 +69,10 @@ export default async function TransactionDetailPage({
       ? intent.payload.merchant_name
       : intent.merchant_slug;
   const merchantTrusted = intent.payload.merchant_trusted === true;
+  const stripePaymentUrl =
+    receipt?.provider_reference.startsWith("pi_")
+      ? `https://dashboard.stripe.com/test/payments/${receipt.provider_reference}`
+      : null;
 
   return (
     <div className="space-y-10">
@@ -178,6 +183,18 @@ export default async function TransactionDetailPage({
                   </dd>
                 </div>
               </dl>
+              {stripePaymentUrl ? (
+                <ArrowButton
+                  href={stripePaymentUrl}
+                  external
+                  variant="primary"
+                  size="lg"
+                  className="mt-6 w-full justify-center sm:w-auto"
+                  icon={<ExternalLink className="size-4" aria-hidden />}
+                >
+                  View in Stripe
+                </ArrowButton>
+              ) : null}
             </div>
           ) : null}
 

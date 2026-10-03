@@ -11,7 +11,16 @@ import { appendAuditEvent } from "./audit.ts";
 import { formatUsd, getProductRow, searchProductRows, toProductView, type ProductView } from "./products.ts";
 import type { PaymentProvider } from "../payments/provider.ts";
 import type { GuardrailResult, GuardrailViolation } from "../policy/guardrails.ts";
-import { assessProductRisk, getAgentStatus, runGuardrails, triggerKillSwitch, type GuardrailPolicyRow, type RiskSignals } from "./guardrail-gate.ts";
+import {
+  assessProductRisk,
+  computeIntentHash,
+  getAgentStatus,
+  productCategory,
+  runGuardrails,
+  triggerKillSwitch,
+  type GuardrailPolicyRow,
+  type RiskSignals,
+} from "./guardrail-gate.ts";
 
 export interface DomainContext {
   db: SupabaseClient;
@@ -25,7 +34,9 @@ export interface DomainContext {
   now?: () => Date;
 }
 
-export type AnyViolation = ViolationCode | GuardrailViolation;
+export type ExecutionViolation = "APPROVAL_HASH_MISMATCH";
+
+export type AnyViolation = ViolationCode | GuardrailViolation | ExecutionViolation;
 
 type Log = (message: string, fields: Record<string, unknown>) => void;
 const log: Log = (message, fields) => {
@@ -159,7 +170,7 @@ export async function searchProducts(ctx: DomainContext, query: string): Promise
 
 export const ProposePurchaseInput = z.object({
   product_id: z.string().uuid(),
-  quantity: z.number().int().min(1).max(1).default(1),
+  quantity: z.number().int().min(1).max(50).default(1),
   reason: z.string().max(1000).optional(),
   idempotency_key: z.string().min(8).max(200).optional(),
   // Anything below is agent-CLAIMED and only recorded as evidence. It never influences authorization.
@@ -265,6 +276,23 @@ export function describeViolation(code: AnyViolation, decision?: AuthorizationDe
       return `website ${String(guard?.checks?.allowed_websites?.domain ?? "?")} is not in your allowed websites list`;
     case "PRICE_ANOMALY":
       return "price is far above typical market pricing for this product (Jev price check)";
+    case "CATEGORY_BLOCKED": {
+      const cat = String(guard?.checks?.category_blocked?.category ?? "?");
+      return `purchases in category ${cat} are blocked by your policy (e.g. crypto, gift cards, wire transfers)`;
+    }
+    case "CATEGORY_NOT_ALLOWED": {
+      const cat = String(guard?.checks?.category_allowed?.category ?? "?");
+      return `purchases in category ${cat} are not allowed by your delegation`;
+    }
+    case "PRICE_ABOVE_MARKET": {
+      const unit = Number(guard?.checks?.market_price?.unitPriceCents ?? 0);
+      const market = guard?.checks?.market_price?.marketPriceCents;
+      const tolerance = Number(guard?.checks?.market_price?.tolerance ?? 1.5);
+      const marketUsd = typeof market === "number" ? formatUsd(market) : "?";
+      return `${formatUsd(unit)} is more than ${tolerance}× the typical market price (${marketUsd})`;
+    }
+    case "APPROVAL_HASH_MISMATCH":
+      return "the purchase terms changed after human approval; execution was blocked";
     default:
       return String(code);
   }
@@ -311,6 +339,7 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
   if (!product || !product.active) {
     return { status: "rejected", error: "PRODUCT_NOT_FOUND", message: "Unknown or inactive product. No action was created." };
   }
+  const category = productCategory(product);
   const terms: AuthoritativeTerms = {
     product_id: product.id,
     product_name: product.name,
@@ -370,6 +399,7 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
       payload: {
         ...intentPayload,
         quantity: input.quantity,
+        category,
         product_name: terms.product_name,
         merchant_name: terms.merchant_name,
         merchant_trusted: product.merchants.trusted,
@@ -468,7 +498,7 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
     }
     const agentStatus = await getAgentStatus(ctx.db, ctx.agentId);
     risk = await assessProductRisk(ctx.db, ctx.principalId, product, ctx.jevApiKey, intentId);
-    guard = runGuardrails(agentStatus, product, guardPolicy, risk);
+    guard = runGuardrails(agentStatus, product, guardPolicy, risk, { quantity: input.quantity });
   } catch (error) {
     log("policy evaluation failed; failing closed", { intent_id: intentId, error: String(error) });
     await ctx.db.from("action_intents").update({ status: "denied" }).eq("id", intentId);
@@ -563,9 +593,20 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
         escalated_by_guardrails: guard.requireApproval,
       },
     });
+    const intentHash = await computeIntentHash({
+      principalId: ctx.principalId,
+      agentId: ctx.agentId,
+      productId: terms.product_id,
+      merchant: terms.merchant,
+      amountCents: terms.amount_cents,
+      currency: terms.currency,
+      recurring: terms.recurring,
+      quantity: input.quantity,
+      category,
+    });
     const { data: approval, error: approvalError } = await ctx.db
       .from("approvals")
-      .insert({ intent_id: intentId, principal_id: ctx.principalId, status: "pending" })
+      .insert({ intent_id: intentId, principal_id: ctx.principalId, status: "pending", intent_hash: intentHash })
       .select("id")
       .single();
     if (approvalError || !approval) throw new Error(`approval request failed: ${approvalError?.message}`);
@@ -574,7 +615,15 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
       agentId: ctx.agentId,
       intentId,
       eventType: "HUMAN_APPROVAL_REQUESTED",
-      eventData: { approval_id: approval.id, amount_cents: terms.amount_cents, product: terms.product_name, merchant: terms.merchant_name },
+      eventData: {
+        approval_id: approval.id,
+        amount_cents: terms.amount_cents,
+        product: terms.product_name,
+        merchant: terms.merchant_name,
+        intent_hash: intentHash,
+        quantity: input.quantity,
+        category,
+      },
     });
     return {
       status: "awaiting_approval",
@@ -625,12 +674,17 @@ export async function resolveApproval(
   if (!row) throw new NotAuthorizedError("Approval not found.");
 
   if (row.resolved) {
+    const { data: approvalRow } = await ctx.db.from("approvals").select("intent_hash").eq("id", approvalId).maybeSingle();
+    const intentHash =
+      approvalRow && typeof (approvalRow as { intent_hash?: string }).intent_hash === "string"
+        ? (approvalRow as { intent_hash: string }).intent_hash
+        : null;
     await appendAuditEvent(ctx.db, {
       principalId: ctx.principalId,
       agentId: ctx.agentId,
       intentId: row.intent_id,
       eventType: decision === "approved" ? "HUMAN_APPROVED" : "HUMAN_DENIED",
-      eventData: { approval_id: approvalId, channel: ctx.channel, reason: reason ?? null },
+      eventData: { approval_id: approvalId, channel: ctx.channel, reason: reason ?? null, intent_hash: intentHash },
     });
   }
   if (row.resolved && decision === "approved") {
@@ -770,6 +824,45 @@ export async function executeAction(ctx: DomainContext, intentId: string): Promi
       eventData: { stage: "pre_execution", violations: decision.violations, reasons },
     });
     return { status: "denied", intent_id: intentId, violations: decision.violations, reasons, message: reasons.join("; ") };
+  }
+
+  const { data: approvalForHash } = await ctx.db.from("approvals").select("intent_hash").eq("intent_id", intentId).maybeSingle();
+  const storedIntentHash = (approvalForHash as { intent_hash?: string | null } | null)?.intent_hash;
+  if (typeof storedIntentHash === "string" && storedIntentHash.length > 0) {
+    const payload = intent.payload;
+    const quantity = typeof payload.quantity === "number" ? payload.quantity : 1;
+    const category = typeof payload.category === "string" ? payload.category : "software";
+    const currentHash = await computeIntentHash({
+      principalId: intent.principal_id,
+      agentId: intent.agent_id,
+      productId: intent.product_id ?? "",
+      merchant: intent.merchant_slug,
+      amountCents: intent.amount_cents,
+      currency: intent.currency,
+      recurring: intent.recurring,
+      quantity,
+      category,
+    });
+    if (currentHash !== storedIntentHash) {
+      await setStatus(ctx, intentId, "denied");
+      const violations: ExecutionViolation[] = ["APPROVAL_HASH_MISMATCH"];
+      const reasons = violations.map((v) => describeViolation(v));
+      await appendAuditEvent(ctx.db, {
+        principalId: ctx.principalId,
+        agentId: intent.agent_id,
+        intentId,
+        eventType: "APPROVAL_HASH_MISMATCH",
+        eventData: {
+          stage: "pre_execution",
+          stored_intent_hash: storedIntentHash,
+          current_intent_hash: currentHash,
+          amount_cents: intent.amount_cents,
+          quantity,
+          category,
+        },
+      });
+      return { status: "denied", intent_id: intentId, violations, reasons, message: reasons.join("; ") };
+    }
   }
 
   const executionKey = `agentledger_exec_${intent.id}`;
