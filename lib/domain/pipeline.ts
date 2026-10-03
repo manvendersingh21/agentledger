@@ -252,7 +252,7 @@ export function describeViolation(code: AnyViolation, decision?: AuthorizationDe
     case "AGENT_SUSPENDED":
       return "this agent is suspended by the AgentLedger kill switch; a human must re-enable it";
     case "MERCHANT_TRUST_TOO_LOW":
-      return `merchant trust score ${String(guard?.checks?.merchant_trust?.score ?? "?")} is below the required ${String(guard?.checks?.merchant_trust?.min ?? 95)}`;
+      return `merchant trust score ${String(guard?.checks?.merchant_trust?.trustScore ?? "unknown")} is below the required ${String(guard?.checks?.merchant_trust?.minTrustScore ?? 95)}`;
     case "MERCHANT_TRUST_UNKNOWN":
       return "merchant has no trust score; unscored websites are not allowed";
     case "PROMPT_INJECTION_DETECTED":

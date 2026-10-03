@@ -63,6 +63,7 @@ Deno.serve(
           stripeSecretKey: Deno.env.get("STRIPE_SECRET_KEY") ?? null,
         }),
         channel: "mcp",
+        jevApiKey: Deno.env.get("JEV_API_KEY") ?? null,
       };
 
       let body: unknown;

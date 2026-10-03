@@ -34,7 +34,7 @@ async function domainContextFromToken(token: string) {
     stripeSecretKey: serverEnv.stripeSecretKey(),
   });
   return {
-    domain: { db, principalId, agentId, payments, channel: "mcp" },
+    domain: { db, principalId, agentId, payments, channel: "mcp", jevApiKey: process.env.JEV_API_KEY ?? null },
     principalLabel: displayName,
   };
 }
