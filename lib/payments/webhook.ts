@@ -103,6 +103,57 @@ export function paymentIntentIdFromEvent(event: StripeWebhookEvent): string | nu
   return null;
 }
 
+function paymentIntentMetadataFromEvent(event: StripeWebhookEvent): Record<string, string> {
+  const raw = event.data.object.metadata;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string") out[key] = value;
+  }
+  return out;
+}
+
+type MatchedExecution = {
+  id: string;
+  intent_id: string;
+  principal_id: string;
+  provider_operation_id: string | null;
+};
+
+async function findExecutionForPaymentIntent(
+  db: SupabaseClient,
+  paymentIntentId: string,
+  metadata: Record<string, string>,
+): Promise<{ execution: MatchedExecution; matchedBy: "agentledger_execution_id" | "provider_operation_id" } | null> {
+  const executionIdFromMeta = metadata.agentledger_execution_id;
+  if (executionIdFromMeta) {
+    const { data, error } = await db
+      .from("executions")
+      .select("id, intent_id, principal_id, provider_operation_id")
+      .eq("id", executionIdFromMeta)
+      .maybeSingle();
+    if (error) throw new Error(`execution lookup by metadata failed: ${error.message}`);
+    if (data) {
+      return {
+        execution: data as MatchedExecution,
+        matchedBy: "agentledger_execution_id",
+      };
+    }
+  }
+
+  const { data, error } = await db
+    .from("executions")
+    .select("id, intent_id, principal_id, provider_operation_id")
+    .eq("provider_operation_id", paymentIntentId)
+    .maybeSingle();
+  if (error) throw new Error(`execution lookup by provider_operation_id failed: ${error.message}`);
+  if (!data) return null;
+  return {
+    execution: data as MatchedExecution,
+    matchedBy: "provider_operation_id",
+  };
+}
+
 async function webhookReconciliationExists(
   db: SupabaseClient,
   intentId: string,
@@ -147,16 +198,22 @@ export async function ingestStripeWebhookEvent(
   }
   if (!paymentIntentId) return { outcome: "recorded", reconciled: false };
 
-  const { data: execution, error: execError } = await db
-    .from("executions")
-    .select("id, intent_id, principal_id, status")
-    .eq("provider_operation_id", paymentIntentId)
-    .maybeSingle();
-  if (execError) throw new Error(`execution lookup failed: ${execError.message}`);
-  if (!execution) return { outcome: "recorded", reconciled: false };
+  const metadata = paymentIntentMetadataFromEvent(event);
+  const match = await findExecutionForPaymentIntent(db, paymentIntentId, metadata);
+  if (!match) return { outcome: "recorded", reconciled: false };
 
-  const intentId = execution.intent_id as string;
-  const principalId = execution.principal_id as string;
+  const { execution, matchedBy } = match;
+  const intentId = execution.intent_id;
+  const principalId = execution.principal_id;
+
+  if (execution.provider_operation_id === null) {
+    const { error: linkError } = await db
+      .from("executions")
+      .update({ provider_operation_id: paymentIntentId })
+      .eq("id", execution.id)
+      .is("provider_operation_id", null);
+    if (linkError) throw new Error(`execution provider_operation_id update failed: ${linkError.message}`);
+  }
 
   if (await webhookReconciliationExists(db, intentId, paymentIntentId)) {
     return { outcome: "recorded", reconciled: false };
@@ -164,51 +221,14 @@ export async function ingestStripeWebhookEvent(
 
   const { data: intent, error: intentError } = await db
     .from("action_intents")
-    .select("id, agent_id, status")
+    .select("id, agent_id")
     .eq("id", intentId)
     .maybeSingle();
   if (intentError) throw new Error(`intent lookup failed: ${intentError.message}`);
   if (!intent) return { outcome: "recorded", reconciled: false };
 
-  const intentStatus = intent.status as string;
-  const agentId = intent.agent_id as string;
-
-  if (event.type === "payment_intent.payment_failed" && intentStatus === "executed") {
-    return { outcome: "recorded", reconciled: false };
-  }
-
+  const agentId = metadata.agent_id ?? (intent.agent_id as string);
   const succeeded = event.type === "payment_intent.succeeded";
-  const executionStatus = execution.status as string;
-
-  if (executionStatus === "pending") {
-    const { error: updateExecError } = await db
-      .from("executions")
-      .update({
-        status: succeeded ? "succeeded" : "failed",
-        completed_at: new Date().toISOString(),
-        ...(succeeded ? {} : { error: { source: "stripe_webhook", stripe_event_id: event.id } }),
-      })
-      .eq("id", execution.id)
-      .eq("status", "pending");
-    if (updateExecError) throw new Error(`execution update failed: ${updateExecError.message}`);
-  }
-
-  if (succeeded && intentStatus === "executing") {
-    const { error: intentUpdateError } = await db
-      .from("action_intents")
-      .update({ status: "executed" })
-      .eq("id", intentId)
-      .eq("status", "executing");
-    if (intentUpdateError) throw new Error(`intent update failed: ${intentUpdateError.message}`);
-  }
-  if (!succeeded && intentStatus === "executing") {
-    const { error: intentUpdateError } = await db
-      .from("action_intents")
-      .update({ status: "failed" })
-      .eq("id", intentId)
-      .eq("status", "executing");
-    if (intentUpdateError) throw new Error(`intent update failed: ${intentUpdateError.message}`);
-  }
 
   await appendAuditEvent(db, {
     principalId,
@@ -219,6 +239,7 @@ export async function ingestStripeWebhookEvent(
       source: "stripe_webhook",
       stripe_event_id: event.id,
       payment_intent_id: paymentIntentId,
+      matched_by: matchedBy,
       execution_id: execution.id,
       webhook_type: event.type,
     },

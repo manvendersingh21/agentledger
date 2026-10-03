@@ -646,6 +646,24 @@ async function main(): Promise<void> {
       record("PATCH delegation restore 2000 → 200", false, "skipped");
     }
 
+    // Stripe → webhook → reconciliation audit row (Stripe delivers asynchronously; poll up to 60s).
+    if (stripePiId) {
+      let reconciled = false;
+      for (let i = 0; i < 12 && !reconciled; i++) {
+        const { data } = await service
+          .from("audit_events")
+          .select("id")
+          .eq("principal_id", principalA)
+          .contains("event_data", { source: "stripe_webhook", payment_intent_id: stripePiId })
+          .limit(1);
+        reconciled = (data?.length ?? 0) > 0;
+        if (!reconciled) await new Promise((r) => setTimeout(r, 5000));
+      }
+      record("Stripe webhook reconciled payment (audit source=stripe_webhook)", reconciled, stripePiId);
+    } else {
+      record("Stripe webhook reconciled payment (audit source=stripe_webhook)", false, "skipped: no PaymentIntent");
+    }
+
     const resetRes = await appFetch(baseUrl, "/api/demo/reset", cookieA, { method: "POST" });
     record("POST /api/demo/reset → 200", resetRes.status === 200, `status=${resetRes.status}`);
     const { count: intentCount, error: intentCountErr } = await service

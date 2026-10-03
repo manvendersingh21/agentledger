@@ -51,11 +51,19 @@ function paymentIntentEvent(
   id: string,
   type: "payment_intent.succeeded" | "payment_intent.payment_failed",
   piId: string,
+  metadata?: Record<string, string>,
 ): StripeWebhookEvent {
   return {
     id,
     type,
-    data: { object: { id: piId, object: "payment_intent", status: type === "payment_intent.succeeded" ? "succeeded" : "requires_payment_method" } },
+    data: {
+      object: {
+        id: piId,
+        object: "payment_intent",
+        status: type === "payment_intent.succeeded" ? "succeeded" : "requires_payment_method",
+        ...(metadata ? { metadata } : {}),
+      },
+    },
   };
 }
 
@@ -204,11 +212,12 @@ describe("Stripe webhook (local DB)", () => {
     const webhookAudits = audits.filter((row) => (row.event_data as { source?: string }).source === "stripe_webhook");
     expect(webhookAudits).toHaveLength(1);
     expect((webhookAudits[0].event_data as { payment_intent_id: string }).payment_intent_id).toBe(piId);
+    expect((webhookAudits[0].event_data as { matched_by: string }).matched_by).toBe("provider_operation_id");
 
     const execution = data<Row>(
       await service.from("executions").select("status").eq("id", executionId).returns<Row[]>().single(),
     );
-    expect(execution.status).toBe("succeeded");
+    expect(execution.status).toBe("pending");
 
     const second = await ingestStripeWebhookEvent(service, event);
     expect(second).toEqual({ outcome: "duplicate" });
@@ -223,5 +232,85 @@ describe("Stripe webhook (local DB)", () => {
         .returns<Row[]>(),
     );
     expect(auditsAfter).toHaveLength(1);
+  });
+
+  it("reconciles when provider_operation_id is not set yet but PaymentIntent metadata matches the execution", async () => {
+    const racePiId = `pi_test_${crypto.randomUUID().replace(/-/g, "")}`;
+    const delegation = data<Row>(
+      await service.from("delegations").select("id").eq("principal_id", principalId).returns<Row[]>().single(),
+    );
+
+    const raceIntent = data<Row>(
+      await service
+        .from("action_intents")
+        .insert({
+          principal_id: principalId,
+          agent_id: agentId,
+          delegation_id: delegation.id,
+          status: "executing",
+          payload: { product_id: "20000000-0000-4000-8000-000000000001" },
+          amount_cents: 1500,
+          currency: "usd",
+          merchant_slug: "acme-api",
+          product_id: "20000000-0000-4000-8000-000000000001",
+          recurring: false,
+          idempotency_key: crypto.randomUUID(),
+        })
+        .select("id")
+        .returns<Row[]>()
+        .single(),
+    );
+    const raceIntentId = raceIntent.id as string;
+
+    const raceExecution = data<Row>(
+      await service
+        .from("executions")
+        .insert({
+          intent_id: raceIntentId,
+          principal_id: principalId,
+          idempotency_key: crypto.randomUUID(),
+          status: "pending",
+          provider: "stripe",
+          provider_operation_id: null,
+        })
+        .select("id")
+        .returns<Row[]>()
+        .single(),
+    );
+    const raceExecutionId = raceExecution.id as string;
+
+    const eventId = `evt_${crypto.randomUUID()}`;
+    const event = paymentIntentEvent(eventId, "payment_intent.succeeded", racePiId, {
+      agentledger_intent_id: raceIntentId,
+      agentledger_execution_id: raceExecutionId,
+      principal_id: principalId,
+      agent_id: agentId,
+    });
+
+    const result = await ingestStripeWebhookEvent(service, event);
+    expect(result).toEqual({ outcome: "recorded", reconciled: true });
+
+    const linked = data<Row>(
+      await service
+        .from("executions")
+        .select("provider_operation_id, status")
+        .eq("id", raceExecutionId)
+        .returns<Row[]>()
+        .single(),
+    );
+    expect(linked.provider_operation_id).toBe(racePiId);
+    expect(linked.status).toBe("pending");
+
+    const audits = data<Row[]>(
+      await service
+        .from("audit_events")
+        .select("event_data")
+        .eq("intent_id", raceIntentId)
+        .eq("event_type", "PAYMENT_SUCCEEDED")
+        .contains("event_data", { source: "stripe_webhook", payment_intent_id: racePiId })
+        .returns<Row[]>(),
+    );
+    expect(audits).toHaveLength(1);
+    expect((audits[0].event_data as { matched_by: string }).matched_by).toBe("agentledger_execution_id");
   });
 });
