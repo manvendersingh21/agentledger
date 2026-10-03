@@ -529,3 +529,22 @@ Event e-0c461143fca047938ab041b21271d67e
     }
 
 
+2026-10-03T21:19:45Z | Peer a | session.close
+Event e-648cd2733045497aaa803094a41e536b
+    {
+      "body": {
+        "reason": "Peer b (codex) implemented and passed its DB/policy contract (verified by peer a: full suite passes); codex hit its usage limit before submitting/verifying, so outcomes recorded by peer a. Remaining work continued outside HACP with Cursor agents."
+      },
+      "in_reply_to": null,
+      "message_id": "m-f50b094771564cc6a4d1f1f6a1f258ba",
+      "to": "urn:hacp:agent:b"
+    }
+
+
+2026-10-03T21:19:45Z | Peer a | close
+Event e-6953eddc3c7d4291813d92ce5559b760
+    {
+      "reason": "Peer b (codex) implemented and passed its DB/policy contract (verified by peer a: full suite passes); codex hit its usage limit before submitting/verifying, so outcomes recorded by peer a. Remaining work continued outside HACP with Cursor agents."
+    }
+
+

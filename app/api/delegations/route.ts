@@ -39,9 +39,9 @@ const Body = z
 /** Policy edits go through the user's RLS-scoped client (column-restricted grant), then get audited. */
 export async function PATCH(request: Request) {
   try {
-    const body = Body.parse(await request.json());
     const session = await getDomainContext("dashboard");
     if (!session) return unauthorized();
+    const body = Body.parse(await request.json());
     const supabase = await createClient();
     const { delegation_id, require_verified_merchant, ...rest } = body;
     const changes: Record<string, unknown> = { ...rest };

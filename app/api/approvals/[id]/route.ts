@@ -10,9 +10,9 @@ const Body = z.object({ decision: z.enum(["approved", "denied"]), reason: z.stri
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
-    const body = Body.parse(await request.json());
     const session = await getDomainContext("dashboard");
     if (!session) return unauthorized();
+    const body = Body.parse(await request.json());
     const result = await resolveApproval(session.ctx, id, body.decision, body.reason);
     return NextResponse.json(result);
   } catch (error) {

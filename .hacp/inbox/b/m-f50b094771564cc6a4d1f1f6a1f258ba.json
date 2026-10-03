@@ -1,0 +1,12 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-f50b094771564cc6a4d1f1f6a1f258ba",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:a",
+  "to": "urn:hacp:agent:b",
+  "kind": "session.close",
+  "timestamp": "2026-10-03T21:19:45Z",
+  "body": {
+    "reason": "Peer b (codex) implemented and passed its DB/policy contract (verified by peer a: full suite passes); codex hit its usage limit before submitting/verifying, so outcomes recorded by peer a. Remaining work continued outside HACP with Cursor agents."
+  }
+}

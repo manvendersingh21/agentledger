@@ -13,14 +13,14 @@ const Body = z.object({ prompt: z.string().trim().min(3).max(2000), compromised:
 
 /** Runs the embedded purchasing agent and streams its activity as NDJSON. */
 export async function POST(request: Request) {
+  const session = await getDomainContext("playground").catch(() => null);
+  if (!session) return unauthorized();
   let body: z.infer<typeof Body>;
   try {
     body = Body.parse(await request.json());
   } catch (error) {
     return errorResponse(error);
   }
-  const session = await getDomainContext("playground").catch(() => null);
-  if (!session) return unauthorized();
   const provider = getAgentProvider();
   if (!provider) {
     return Response.json({ error: "AGENT_UNAVAILABLE", message: "OPENAI_API_KEY is not configured on the server." }, { status: 503 });
