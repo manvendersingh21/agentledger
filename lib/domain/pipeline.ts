@@ -243,13 +243,26 @@ export interface AuthoritativeTerms {
 const FAIL_CLOSED_MESSAGE = "Action could not be evaluated safely, so AgentLedger denied execution.";
 
 export function describeViolation(code: AnyViolation, decision?: AuthorizationDecision, guard?: GuardrailResult): string {
-  const r = decision?.rules as Record<string, Record<string, unknown>> | undefined;
-  const usd = (v: unknown) => (typeof v === "number" ? formatUsd(v) : "?");
+  const r = decision?.rules;
+  const cents = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
   switch (code) {
-    case "TRANSACTION_LIMIT_EXCEEDED":
-      return `${usd(r?.transaction_limit?.actual)} exceeds the ${usd(r?.transaction_limit?.limit)} per-transaction limit`;
-    case "DAILY_LIMIT_EXCEEDED":
-      return `would bring today's spend to ${usd(Number(r?.daily_limit?.spent ?? 0) + Number(r?.daily_limit?.requested ?? 0))}, above the ${usd(r?.daily_limit?.limit)} daily limit`;
+    case "TRANSACTION_LIMIT_EXCEEDED": {
+      const actual = cents(r?.transaction_limit?.actual);
+      const limit = cents(r?.transaction_limit?.limit);
+      const amount = actual !== null ? formatUsd(actual) : "the amount";
+      return limit !== null
+        ? `${amount} exceeds the ${formatUsd(limit)} per-transaction limit`
+        : `${amount} exceeds the per-transaction limit`;
+    }
+    case "DAILY_LIMIT_EXCEEDED": {
+      const spent = cents(r?.daily_limit?.spent);
+      const requested = cents(r?.daily_limit?.requested);
+      const limit = cents(r?.daily_limit?.limit);
+      const cap = limit !== null ? `the ${formatUsd(limit)} daily limit` : "the daily limit";
+      return spent !== null && requested !== null
+        ? `would bring today's spend to ${formatUsd(spent + requested)}, above ${cap}`
+        : `would exceed ${cap}`;
+    }
     case "RECURRING_NOT_ALLOWED":
       return "recurring purchases (subscriptions) are prohibited by the delegation";
     case "MERCHANT_NOT_ALLOWED":

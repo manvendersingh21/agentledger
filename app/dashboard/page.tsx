@@ -150,11 +150,7 @@ export default async function DashboardOverviewPage() {
       </section>
 
       <section className="mt-4">
-        <ActivityStream
-          key={`${events.length}:${events[0]?.id ?? "none"}`}
-          userId={principal.id}
-          initialEvents={events}
-        />
+        <ActivityStream userId={principal.id} initialEvents={events} />
       </section>
     </>
   );

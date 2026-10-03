@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { Loader2, OctagonAlert } from "lucide-react";
 import type { AgentRow } from "@/lib/data/types";
 import { useLedgerRealtime, type LedgerChange } from "@/lib/realtime/use-ledger-realtime";
+import { useRefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { LocalDateTime } from "@/components/local-time";
@@ -24,7 +24,7 @@ export function ReenableAgentButton({
   size?: "sm" | "md";
   className?: string;
 }) {
-  const router = useRouter();
+  const { suspendRealtimeRefresh, refreshNow } = useRefreshScheduler();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +38,8 @@ export function ReenableAgentButton({
         setError(body.message ?? body.error ?? "Could not re-enable agent.");
         return;
       }
-      router.refresh();
+      suspendRealtimeRefresh(1500);
+      refreshNow();
     } catch {
       setError("Network error.");
     } finally {
@@ -69,15 +70,13 @@ export interface KillSwitchBannerProps {
 }
 
 export function KillSwitchBanner({ userId, suspendedAgents }: KillSwitchBannerProps) {
-  const router = useRouter();
+  const { requestRealtimeRefresh } = useRefreshScheduler();
 
   const onRealtime = useCallback(
     (change: LedgerChange) => {
-      if (change.table === "agents") {
-        router.refresh();
-      }
+      if (change.table === "agents") requestRealtimeRefresh();
     },
-    [router],
+    [requestRealtimeRefresh],
   );
 
   useLedgerRealtime(userId, onRealtime);

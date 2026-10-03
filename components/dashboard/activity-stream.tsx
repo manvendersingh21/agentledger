@@ -86,6 +86,11 @@ export interface ActivityStreamProps {
 
 export function ActivityStream({ userId, initialEvents }: ActivityStreamProps) {
   const [events, setEvents] = useState<AuditEventRow[]>(initialEvents);
+  const [syncedInitial, setSyncedInitial] = useState(initialEvents);
+  if (syncedInitial !== initialEvents) {
+    setSyncedInitial(initialEvents);
+    setEvents(initialEvents);
+  }
 
   const onChange = useCallback(
     (change: { table: string; operation: string; record: Record<string, unknown> | null }) => {

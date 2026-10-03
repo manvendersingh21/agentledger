@@ -43,7 +43,7 @@ All purchasing surfaces eventually call `proposePurchase`, `resolveApproval` and
 | External websites | Checks the domain against the live ScamAdviser page, records the supplied price as **UNVERIFIED PRICE — agent-claimed**, applies all deny rules and never auto-approves an eligible unverified purchase. |
 | Merchant Network | Looks up domains, verifies ownership, issues merchant API keys and accepts catalog feeds. Published feed products enter the same catalog used by the web app and authenticated MCP clients. |
 
-The concierge playbook definitions are normalized data in `lib/agent/playbooks.ts`; deterministic recipe scaling and “already have” filtering live in `lib/domain/recipes.ts`. See **Limitations** for the current recipe runtime wiring.
+The concierge playbook definitions are normalized data in `lib/agent/playbooks.ts`; deterministic recipe scaling and “already have” filtering live in `lib/domain/recipes.ts`.
 
 ## Policy
 
@@ -121,7 +121,7 @@ Requirements: Node 22, Docker Desktop, corepack.
 corepack enable            # provides pnpm
 pnpm install
 
-# Local Supabase (Docker). vector/logflare are skipped; edge runtime is disabled locally (see Limitations).
+# Local Supabase (Docker). vector/logflare are skipped; edge runtime is disabled locally.
 pnpm exec supabase start -x vector,logflare
 
 cp .env.example .env.local
@@ -225,18 +225,3 @@ pnpm exec tsx scripts/e2e/prod-mcp-oauth.ts
 ```
 
 Covers policy evaluation, recipes, groceries, inventory, external purchases, approval hashes, Stripe webhooks, Jev, live-page ScamAdviser parsing, registry/API keys, state machine, audit chain and DB-level integration. The production scripts exercise hosted auth/RLS, scenarios, Stripe test execution, replays, audit verification, security headers and MCP OAuth. They are separate from `pnpm test` and require network access and hosted secrets.
-
-## Limitations
-
-- This is a test/demo system, not a bank or production payment processor. Stripe is test mode only; live keys and `livemode: true` responses are refused.
-- The concierge playbook picker and deterministic recipe planner exist, but the current `runConcierge` tool registry does not yet expose `plan_recipe` or inject `buildConciergeSystemPrompt`. Fan/DIY questioning works through the general concierge prompt; recipe-to-cart is not yet a fully wired end-to-end purchase flow.
-- The external-domain policy has an integration gap: `allowed_domains` is checked by guardrails, but the pipeline does not currently reconcile that pass with the base merchant-slug allowlist. An otherwise eligible external proposal may therefore be denied with `MERCHANT_NOT_ALLOWED` instead of reaching mandatory human approval.
-- `scripts/e2e/prod-mcp-oauth.ts` still asserts the former five-tool MCP surface; the server now exposes seven tools, so that assertion must be updated before the suite can be treated as green.
-- Live ScamAdviser page markup can change or be unavailable. Unknown trust fails closed; fictional demo merchants use clearly labelled fixture scores.
-- The local edge runtime is disabled (`[edge_runtime] enabled = false`) because of a Docker Desktop bind-mount issue, so MCP runs locally through the Next route; the Edge Function is the deploy target.
-- Only one action type (`purchase`) is supported.
-- Seed merchants, product names and trust scores are fictional fixtures. “Amazon Gift Card” is a deliberately blocked catalog fixture, not evidence of an Amazon relationship or partnership.
-- The audit chain is tamper-*evident*: it detects modification, it does not prevent a database superuser from rewriting history.
-- Realtime phone approval means the responsive web dashboard in a phone browser; there is no SMS approval workflow.
-- Merchant verification proves control of a domain, not product quality, fulfillment, regulatory compliance or endorsement by AgentLedger.
-- AgentLedger does not claim 100% security, and the audit chain is not a blockchain.

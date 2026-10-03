@@ -1,13 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useRefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { cn } from "@/lib/utils";
 
+const RESET_SUSPEND_MS = 3000;
+
 export function DemoResetButton() {
-  const router = useRouter();
+  const { suspendRealtimeRefresh, refreshNow } = useRefreshScheduler();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(
@@ -17,6 +19,8 @@ export function DemoResetButton() {
   async function runReset() {
     setLoading(true);
     setMessage(null);
+    // The reset RPC fans out into dozens of row broadcasts; ignore them and refresh once at the end.
+    suspendRealtimeRefresh(RESET_SUSPEND_MS);
     try {
       const res = await fetch("/api/demo/reset", { method: "POST" });
       const body = (await res.json()) as { message?: string; error?: string };
@@ -29,10 +33,11 @@ export function DemoResetButton() {
       }
       setConfirming(false);
       setMessage({ tone: "success", text: "Demo data reset." });
-      router.refresh();
     } catch {
       setMessage({ tone: "error", text: "Network error. Try again." });
     } finally {
+      suspendRealtimeRefresh(RESET_SUSPEND_MS);
+      refreshNow();
       setLoading(false);
     }
   }

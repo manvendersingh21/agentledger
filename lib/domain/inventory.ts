@@ -2,14 +2,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
-  describeViolation,
   getDelegation,
   proposePurchase,
   type AnyViolation,
   type DomainContext,
   type ProposeResult,
 } from "./pipeline";
-import type { MerchantRow } from "./products";
+import { formatUsd, type MerchantRow } from "./products";
 
 export interface InventoryItemRow {
   id: string;
@@ -90,6 +89,21 @@ function purchaseQuantity(item: InventoryItemRow, unitAdd: number): number {
   if (deficit <= 0) return Math.max(1, item.reorder_qty);
   const qty = Math.ceil(deficit / unitAdd);
   return Math.max(1, Math.min(50, qty));
+}
+
+/** Shrinks quantity so price × quantity fits the per-transaction limit, if at least one unit fits. */
+export function fitToTransactionLimit(
+  quantity: number,
+  priceCents: number,
+  maxAmountCents: number | undefined,
+): { quantity: number; note?: string } {
+  if (maxAmountCents === undefined || priceCents <= 0 || priceCents * quantity <= maxAmountCents) return { quantity };
+  const fits = Math.floor(maxAmountCents / priceCents);
+  if (fits < 1) return { quantity };
+  return {
+    quantity: fits,
+    note: `Reduced quantity from ${quantity} to ${fits} (${formatUsd(priceCents * fits)}) to fit the ${formatUsd(maxAmountCents)} per-transaction limit; ${quantity} × ${formatUsd(priceCents)} = ${formatUsd(priceCents * quantity)} would exceed it.`,
+  };
 }
 
 export interface PickProductResult {
@@ -316,7 +330,7 @@ function mapProposeToLine(
   };
 
   if (propose.status === "denied") {
-    const msg = propose.reasons?.join("; ") ?? propose.message;
+    const msg = propose.reasons?.join("; ") || propose.message;
     return {
       ...base,
       outcome: "blocked",
@@ -418,13 +432,14 @@ export async function runRestock(ctx: DomainContext): Promise<{ results: Restock
     }
 
     const unitAdd = unitAddPerPurchase(pick.product, item.unit);
-    const quantity = purchaseQuantity(item, unitAdd);
+    const fit = fitToTransactionLimit(purchaseQuantity(item, unitAdd), pick.product.price_cents, delegation?.maxAmountCents);
+    const quantity = fit.quantity;
     const idempotencyKey = `autopilot-${item.id}-${pick.product.id}-${quantity}`;
 
     const propose = await proposePurchase(autopilotCtx, {
       product_id: pick.product.id,
       quantity,
-      reason: `Autopilot restock: ${item.name} (on hand ${item.on_hand} ${item.unit}, par ${item.par_level})`,
+      reason: `Autopilot restock: ${item.name} (on hand ${item.on_hand} ${item.unit}, par ${item.par_level})${fit.note ? `. ${fit.note}` : ""}`,
       idempotency_key: idempotencyKey,
     });
 
@@ -446,15 +461,12 @@ export async function runRestock(ctx: DomainContext): Promise<{ results: Restock
     }
 
     let line = mapProposeToLine(item, propose, pick.skippedCheaperUntrusted, pick.product.name);
+    if (fit.note) {
+      line = { ...line, message: `${fit.note} ${line.message}` };
+    }
     if (pick.skippedCheaperUntrusted) {
       const skipNote = `AgentLedger skipped cheaper untrusted supplier (${pick.skippedCheaperUntrusted.merchant_name} — ${pick.skippedCheaperUntrusted.product_name}).`;
       line = { ...line, message: `${skipNote} ${line.message}` };
-    }
-    if (line.outcome === "blocked" && line.violations?.length) {
-      line = {
-        ...line,
-        message: line.violations.map((v) => describeViolation(v)).join("; "),
-      };
     }
     results.push(line);
   }
