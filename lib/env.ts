@@ -12,6 +12,7 @@ export const serverEnv = {
   supabaseSecretKey: () => required("SUPABASE_SECRET_KEY"),
   stripeSecretKey: () => process.env.STRIPE_SECRET_KEY ?? null,
   openaiApiKey: () => process.env.OPENAI_API_KEY ?? null,
+  jevApiKey: () => process.env.JEV_API_KEY ?? null,
   paymentProvider: () => (process.env.PAYMENT_PROVIDER ?? "stripe") as "stripe" | "demo",
   agentModel: () => process.env.AGENT_MODEL ?? "gpt-5.4-mini",
   demoMode: () => process.env.NEXT_PUBLIC_DEMO_MODE === "true",

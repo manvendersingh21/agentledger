@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BadgeCheck,
   Bot,
   ClipboardCheck,
   FileSearch,
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/agents", label: "Agent", icon: Bot },
   { href: "/dashboard/delegations", label: "Delegation", icon: Link2 },
+  { href: "/dashboard/registry", label: "Registry", icon: BadgeCheck },
   { href: "/dashboard/approvals", label: "Approvals", icon: ClipboardCheck, badgeKey: "approvals" as const },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt },
   { href: "/dashboard/audit", label: "Audit Trail", icon: FileSearch },

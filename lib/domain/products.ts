@@ -7,6 +7,10 @@ export interface MerchantRow {
   slug: string;
   name: string;
   trusted: boolean;
+  domain?: string | null;
+  trust_score?: number | string | null;
+  trust_score_source?: string | null;
+  verified?: boolean | null;
 }
 
 export interface ProductRow {
@@ -25,7 +29,15 @@ export interface ProductRow {
 export interface ProductView {
   product_id: string;
   name: string;
-  merchant: { slug: string; name: string; trusted: boolean };
+  merchant: {
+    slug: string;
+    name: string;
+    trusted: boolean;
+    domain: string | null;
+    trust_score: number | null;
+    trust_score_source: string;
+    verified: boolean;
+  };
   /** Authoritative values from the AgentLedger database. */
   price_cents: number;
   price_display: string;
@@ -66,7 +78,15 @@ export function toProductView(row: ProductRow): ProductView {
   return {
     product_id: row.id,
     name: row.name,
-    merchant: { slug: row.merchants.slug, name: row.merchants.name, trusted: row.merchants.trusted },
+    merchant: {
+      slug: row.merchants.slug,
+      name: row.merchants.name,
+      trusted: row.merchants.trusted,
+      domain: row.merchants.domain ?? null,
+      trust_score: row.merchants.trust_score === null || row.merchants.trust_score === undefined ? null : Number(row.merchants.trust_score),
+      trust_score_source: row.merchants.trust_score_source ?? "unavailable",
+      verified: row.merchants.verified === true,
+    },
     price_cents: row.price_cents,
     price_display: formatUsd(row.price_cents),
     currency: row.currency,
@@ -81,7 +101,7 @@ export function toProductView(row: ProductRow): ProductView {
   };
 }
 
-const PRODUCT_SELECT = "id, merchant_id, name, description, price_cents, currency, recurring, metadata, active, merchants!inner(id, slug, name, trusted)";
+const PRODUCT_SELECT = "id, merchant_id, name, description, price_cents, currency, recurring, metadata, active, merchants!inner(*)";
 
 export async function searchProductRows(db: SupabaseClient, query: string): Promise<ProductRow[]> {
   const { data, error } = await db

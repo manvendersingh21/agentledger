@@ -10,6 +10,8 @@ import type { AuthorizationDecision, Delegation, PurchaseIntent, ViolationCode }
 import { appendAuditEvent } from "./audit.ts";
 import { formatUsd, getProductRow, searchProductRows, toProductView, type ProductView } from "./products.ts";
 import type { PaymentProvider } from "../payments/provider.ts";
+import type { GuardrailResult, GuardrailViolation } from "../policy/guardrails.ts";
+import { assessProductRisk, getAgentStatus, runGuardrails, triggerKillSwitch, type GuardrailPolicyRow, type RiskSignals } from "./guardrail-gate.ts";
 
 export interface DomainContext {
   db: SupabaseClient;
@@ -18,8 +20,12 @@ export interface DomainContext {
   payments: PaymentProvider;
   /** Where the call came from, recorded in audit events (e.g. "playground", "mcp", "dashboard"). */
   channel: string;
+  /** Server-side Jev key for guardrail signals; absent ⇒ signals unavailable ⇒ human approval required. */
+  jevApiKey?: string | null;
   now?: () => Date;
 }
+
+export type AnyViolation = ViolationCode | GuardrailViolation;
 
 type Log = (message: string, fields: Record<string, unknown>) => void;
 const log: Log = (message, fields) => {
@@ -185,17 +191,19 @@ export type ExecuteResult =
       message: string;
     }
   | { status: "failed"; intent_id: string; execution_id: string | null; error: { code: string; message: string } }
-  | { status: "denied"; intent_id: string; violations: ViolationCode[]; reasons: string[]; message: string }
+  | { status: "denied"; intent_id: string; violations: AnyViolation[]; reasons: string[]; message: string }
   | { status: "not_executable"; intent_id: string; current_status: string; message: string };
 
 export type ProposeResult =
   | {
       status: "denied";
       intent_id: string;
-      violations: ViolationCode[];
+      violations: AnyViolation[];
       reasons: string[];
       authoritative: AuthoritativeTerms;
       message: string;
+      kill_switch?: { triggered: boolean; reason: string | null };
+      risk?: RiskSignals | null;
     }
   | {
       status: "awaiting_approval";
@@ -221,7 +229,7 @@ export interface AuthoritativeTerms {
 
 const FAIL_CLOSED_MESSAGE = "Action could not be evaluated safely, so AgentLedger denied execution.";
 
-export function describeViolation(code: ViolationCode, decision?: AuthorizationDecision): string {
+export function describeViolation(code: AnyViolation, decision?: AuthorizationDecision, guard?: GuardrailResult): string {
   const r = decision?.rules as Record<string, Record<string, unknown>> | undefined;
   const usd = (v: unknown) => (typeof v === "number" ? formatUsd(v) : "?");
   switch (code) {
@@ -241,6 +249,18 @@ export function describeViolation(code: ViolationCode, decision?: AuthorizationD
       return "the amount could not be validated";
     case "CURRENCY_NOT_ALLOWED":
       return "only USD purchases are permitted";
+    case "AGENT_SUSPENDED":
+      return "this agent is suspended by the AgentLedger kill switch; a human must re-enable it";
+    case "MERCHANT_TRUST_TOO_LOW":
+      return `merchant trust score ${String(guard?.checks?.merchant_trust?.score ?? "?")} is below the required ${String(guard?.checks?.merchant_trust?.min ?? 95)}`;
+    case "MERCHANT_TRUST_UNKNOWN":
+      return "merchant has no trust score; unscored websites are not allowed";
+    case "PROMPT_INJECTION_DETECTED":
+      return "merchant content was flagged as prompt injection by the Jev guardrail";
+    case "CRYPTO_EXFILTRATION_DETECTED":
+      return "merchant content tries to divert funds (crypto/off-platform payment)";
+    case "PRICE_ANOMALY":
+      return "price is far above typical market pricing for this product (Jev price check)";
     default:
       return String(code);
   }
@@ -421,8 +441,11 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
     });
   }
 
-  // 3. Deterministic policy evaluation. Any failure here denies.
+  // 3. Deterministic policy evaluation (delegation rules + guardrail rules over external signals).
+  //    Any failure here denies. Deny always wins.
   let decision: AuthorizationDecision;
+  let guard: GuardrailResult;
+  let risk: RiskSignals | null = null;
   try {
     await setStatus(ctx, intentId, "evaluating");
     await appendAuditEvent(ctx.db, {
@@ -434,6 +457,14 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
     });
     const spent = await dailySpend(ctx, intentId);
     decision = evaluateAction({ delegation, intent: intentPayload, dailySpendCents: spent, now: (ctx.now ?? (() => new Date()))() });
+    let guardPolicy: GuardrailPolicyRow | null = null;
+    if (delegation) {
+      const { data } = await ctx.db.from("delegations").select("*").eq("id", delegation.id).maybeSingle();
+      guardPolicy = (data as GuardrailPolicyRow | null) ?? null;
+    }
+    const agentStatus = await getAgentStatus(ctx.db, ctx.agentId);
+    risk = await assessProductRisk(ctx.db, ctx.principalId, product, ctx.jevApiKey, intentId);
+    guard = runGuardrails(agentStatus, product, guardPolicy, risk);
   } catch (error) {
     log("policy evaluation failed; failing closed", { intent_id: intentId, error: String(error) });
     await ctx.db.from("action_intents").update({ status: "denied" }).eq("id", intentId);
@@ -447,19 +478,38 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
     return { status: "denied", intent_id: intentId, violations: [], reasons: [FAIL_CLOSED_MESSAGE], authoritative: terms, message: FAIL_CLOSED_MESSAGE };
   }
 
+  const allViolations: AnyViolation[] = [...decision.violations, ...guard.violations];
+  const finalDecision: "deny" | "require_approval" | "auto_approve" =
+    allViolations.length > 0 ? "deny" : decision.decision === "require_approval" || guard.requireApproval ? "require_approval" : "auto_approve";
+  const rulesEvaluated = { ...decision.rules, guardrails: guard.checks, risk_signals: risk };
+
+  await appendAuditEvent(ctx.db, {
+    principalId: ctx.principalId,
+    agentId: ctx.agentId,
+    intentId,
+    eventType: "GUARDRAILS_EVALUATED",
+    eventData: {
+      checks: guard.checks,
+      violations: guard.violations,
+      require_approval: guard.requireApproval,
+      risk_signals: risk,
+      signal_source: risk ? `${risk.provider} ${risk.model}` : "unavailable (fails toward human approval)",
+    },
+  });
+
   await ctx.db.from("policy_decisions").insert({
     intent_id: intentId,
     principal_id: ctx.principalId,
-    decision: decision.decision,
-    rules_evaluated: decision.rules,
-    violations: decision.violations,
-    approval_required: decision.approvalRequired,
-    policy_version: decision.policyVersion,
+    decision: finalDecision,
+    rules_evaluated: rulesEvaluated,
+    violations: allViolations,
+    approval_required: finalDecision === "require_approval",
+    policy_version: `${decision.policyVersion}+guardrails-v1`,
   });
 
-  if (decision.decision === "deny") {
+  if (finalDecision === "deny") {
     await setStatus(ctx, intentId, "denied");
-    const reasons = decision.violations.map((v) => describeViolation(v, decision));
+    const reasons = allViolations.map((v) => describeViolation(v, decision, guard));
     await appendAuditEvent(ctx.db, {
       principalId: ctx.principalId,
       agentId: ctx.agentId,
@@ -470,30 +520,44 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
         transaction_limit_cents: delegation?.maxAmountCents ?? null,
         merchant: terms.merchant,
         recurring: terms.recurring,
-        violations: decision.violations,
+        violations: allViolations,
         reasons,
-        rules: decision.rules,
+        rules: rulesEvaluated,
       },
     });
-    log("policy denied", { intent_id: intentId, violations: decision.violations });
+    log("policy denied", { intent_id: intentId, violations: allViolations });
+    let killSwitch = { triggered: false, reason: null as string | null };
+    if (guard.killSwitch.trigger) {
+      await triggerKillSwitch(ctx.db, ctx.principalId, ctx.agentId, intentId, guard.killSwitch.reason ?? "guardrail kill switch");
+      killSwitch = { triggered: true, reason: guard.killSwitch.reason };
+    }
     return {
       status: "denied",
       intent_id: intentId,
-      violations: decision.violations,
+      violations: allViolations,
       reasons,
       authoritative: terms,
-      message: `AgentLedger DENIED this purchase: ${reasons.join("; ")}. Do not retry it; choose an allowed alternative.`,
+      risk,
+      kill_switch: killSwitch,
+      message: killSwitch.triggered
+        ? `AgentLedger DENIED this purchase and HALTED this agent (kill switch): ${reasons.join("; ")}. Stop now; a human must review.`
+        : `AgentLedger DENIED this purchase: ${reasons.join("; ")}. Do not retry it; choose an allowed alternative.`,
     };
   }
 
-  if (decision.decision === "require_approval") {
+  if (finalDecision === "require_approval") {
     await setStatus(ctx, intentId, "awaiting_approval");
     await appendAuditEvent(ctx.db, {
       principalId: ctx.principalId,
       agentId: ctx.agentId,
       intentId,
       eventType: "POLICY_REQUIRES_APPROVAL",
-      eventData: { rules: decision.rules, threshold_cents: delegation?.approvalThresholdCents ?? null, amount_cents: terms.amount_cents },
+      eventData: {
+        rules: rulesEvaluated,
+        threshold_cents: delegation?.approvalThresholdCents ?? null,
+        amount_cents: terms.amount_cents,
+        escalated_by_guardrails: guard.requireApproval,
+      },
     });
     const { data: approval, error: approvalError } = await ctx.db
       .from("approvals")
@@ -517,7 +581,7 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
     };
   }
 
-  // auto_approve
+  // auto_approve (all hard constraints passed, amount within threshold, guardrail signals clean)
   await setStatus(ctx, intentId, "approved");
   await appendAuditEvent(ctx.db, {
     principalId: ctx.principalId,
@@ -671,6 +735,7 @@ export async function executeAction(ctx: DomainContext, intentId: string): Promi
   // Re-check hard constraints at execution time (delegation may have been revoked since approval).
   let decision: AuthorizationDecision;
   try {
+    if ((await getAgentStatus(ctx.db, intent.agent_id)) !== "active") throw new Error("agent not active (kill switch or disabled)");
     const delegation = await getDelegation({ db: ctx.db, principalId: ctx.principalId, agentId: intent.agent_id });
     const spent = await dailySpend(ctx, intentId);
     decision = evaluateAction({

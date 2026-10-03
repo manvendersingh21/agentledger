@@ -7,13 +7,15 @@ import {
   CheckCircle2,
   Clock,
   Loader2,
+  OctagonAlert,
   Play,
   ShieldBan,
   Sparkles,
 } from "lucide-react";
 import type { AgentActivity } from "@/lib/agent/types";
 import type { DelegationRow, PendingApproval } from "@/lib/data/types";
-import type { ProposeResult } from "@/lib/domain/pipeline";
+import type { AnyViolation, AuthoritativeTerms, ProposeResult } from "@/lib/domain/pipeline";
+import type { RiskSignals } from "@/lib/domain/guardrail-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -30,9 +32,58 @@ interface ProductSearchOutput {
     product_id: string;
     name: string;
     suspicious_content_detected?: boolean;
-    merchant?: { slug: string; name: string; trusted: boolean };
+    merchant?: {
+      slug: string;
+      name: string;
+      trusted: boolean;
+      domain?: string | null;
+      trust_score?: number | null;
+      trust_score_source?: string;
+      verified?: boolean;
+    };
     untrusted_merchant_content?: { description: string };
   }>;
+}
+
+function trustSourceLabel(source: string | undefined): string {
+  if (source === "fixture") return "demo fixture";
+  if (source === "scamadvisor") return "ScamAdvisor";
+  return source ?? "unknown";
+}
+
+function JevSignalBars({ risk }: { risk: RiskSignals }) {
+  const signals = [
+    { key: "injection", label: "injection", value: risk.promptInjection },
+    { key: "price", label: "price anomaly", value: risk.priceAnomaly },
+    { key: "crypto", label: "crypto", value: risk.cryptoExfiltration },
+  ] as const;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-red-300/90">
+        Jev signals:{" "}
+        {signals.map((s, i) => (
+          <span key={s.key}>
+            {i > 0 ? " · " : null}
+            {s.label} {s.value.toFixed(2)}
+          </span>
+        ))}
+      </p>
+      <div className="space-y-1.5">
+        {signals.map((s) => (
+          <div key={s.key} className="flex items-center gap-2 text-xs">
+            <span className="w-24 shrink-0 text-muted-foreground">{s.label}</span>
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-red-950/60">
+              <div
+                className="h-full rounded-full bg-red-400/80"
+                style={{ width: `${Math.min(100, Math.max(0, s.value * 100))}%` }}
+              />
+            </div>
+            <span className="w-10 shrink-0 text-right font-mono tabular-nums">{s.value.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -52,21 +103,22 @@ function delegationStrip(d: DelegationRow): string {
 
 interface FeedItem {
   id: string;
-  kind: "status" | "delegation" | "search" | "untrusted" | "propose" | "text" | "error";
+  kind: "status" | "delegation" | "search" | "untrusted" | "propose" | "text" | "error" | "halt";
   activity?: AgentActivity;
   propose?: ProposeResult;
+  searchProducts?: ProductSearchOutput["products"];
   searchCount?: number;
   untrustedExcerpt?: string;
+  haltReason?: string;
 }
 
 function buildFeedItems(activities: AgentActivity[]): FeedItem[] {
   const items: FeedItem[] = [];
-  const toolInputs = new Map<string, unknown>();
+  let halted = false;
 
   for (const a of activities) {
-    if (a.type === "tool_call") {
-      toolInputs.set(a.id, a.input);
-    }
+    if (halted) break;
+
     if (a.type === "tool_result") {
       if (a.tool === "list_delegations") {
         items.push({ id: a.id, kind: "delegation", activity: a });
@@ -74,7 +126,13 @@ function buildFeedItems(activities: AgentActivity[]): FeedItem[] {
       if (a.tool === "search_products") {
         const out = a.output as ProductSearchOutput;
         const products = out.products ?? [];
-        items.push({ id: a.id, kind: "search", activity: a, searchCount: products.length });
+        items.push({
+          id: a.id,
+          kind: "search",
+          activity: a,
+          searchCount: products.length,
+          searchProducts: products,
+        });
         const suspicious = products.filter(
           (p) => p.suspicious_content_detected || p.merchant?.trusted === false,
         );
@@ -91,11 +149,30 @@ function buildFeedItems(activities: AgentActivity[]): FeedItem[] {
       }
       if (a.tool === "propose_purchase") {
         const propose = asProposeResult(a.output);
-        if (propose) items.push({ id: a.id, kind: "propose", propose, activity: a });
+        if (propose) {
+          items.push({ id: a.id, kind: "propose", propose, activity: a });
+          const denied = asDeniedPropose(propose);
+          if (denied?.kill_switch?.triggered) {
+            items.push({
+              id: `${a.id}-halt`,
+              kind: "halt",
+              haltReason: denied.kill_switch.reason ?? "Kill switch triggered",
+            });
+            halted = true;
+          }
+        }
       }
     }
     if (a.type === "status") {
       items.push({ id: `status-${items.length}`, kind: "status", activity: a });
+      if (a.message.includes("AGENT HALTED")) {
+        items.push({
+          id: `halt-status-${items.length}`,
+          kind: "halt",
+          haltReason: a.message,
+        });
+        halted = true;
+      }
     }
     if (a.type === "error") {
       items.push({ id: `err-${items.length}`, kind: "error", activity: a });
@@ -108,6 +185,22 @@ function buildFeedItems(activities: AgentActivity[]): FeedItem[] {
     }
   }
   return items;
+}
+
+type DeniedProposeWithGuardrails = {
+  status: "denied";
+  intent_id: string;
+  violations: AnyViolation[];
+  reasons: string[];
+  authoritative: AuthoritativeTerms;
+  message: string;
+  kill_switch?: { triggered: boolean; reason: string | null };
+  risk?: RiskSignals | null;
+};
+
+function asDeniedPropose(result: ProposeResult): DeniedProposeWithGuardrails | null {
+  if (result.status !== "denied" || !("authoritative" in result)) return null;
+  return result as DeniedProposeWithGuardrails;
 }
 
 function intentIdFromPropose(result: ProposeResult): string | null {
@@ -124,8 +217,9 @@ function ProposeOutcomeCard({
 }) {
   const intentId = intentIdFromPropose(result);
 
-  if (result.status === "denied") {
-    const auth = result.authoritative;
+  const denied = asDeniedPropose(result);
+  if (denied) {
+    const auth = denied.authoritative;
     const maxTx = delegation?.max_amount_cents ?? null;
     const allowRecurring = delegation?.allow_recurring ?? false;
     const allowedMerchants = delegation?.allowed_merchants ?? [];
@@ -135,6 +229,10 @@ function ProposeOutcomeCard({
           <ShieldBan className="size-5 shrink-0" />
           <p className="text-sm font-semibold tracking-tight">ACTION BLOCKED by AgentLedger</p>
         </div>
+        {denied.risk ? <JevSignalBars risk={denied.risk} /> : null}
+        {denied.kill_switch?.triggered ? (
+          <p className="text-xs font-medium text-red-300">Kill switch triggered · agent suspended</p>
+        ) : null}
         <dl className="grid gap-2 font-mono text-xs sm:text-sm">
           <div className="flex justify-between gap-4 border-b border-red-500/20 pb-2">
             <span className="text-muted-foreground">Requested</span>
@@ -158,9 +256,9 @@ function ProposeOutcomeCard({
             </span>
           </div>
         </dl>
-        {result.reasons.length > 0 ? (
+        {denied.reasons.length > 0 ? (
           <ul className="list-disc space-y-1 pl-4 text-xs text-red-300/90">
-            {result.reasons.map((r) => (
+            {denied.reasons.map((r) => (
               <li key={r}>{r}</li>
             ))}
           </ul>
@@ -270,6 +368,7 @@ export function PlaygroundClient({
   const abortRef = useRef<AbortController | null>(null);
 
   const feed = buildFeedItems(activities);
+  const agentHalted = feed.some((item) => item.kind === "halt");
   const finalText =
     activities.findLast((a) => a.type === "done")?.text ??
     activities.findLast((a) => a.type === "text")?.text ??
@@ -424,13 +523,63 @@ export function PlaygroundClient({
                   );
                 }
                 if (item.kind === "search") {
+                  const products = item.searchProducts ?? [];
                   return (
                     <li
                       key={item.id}
-                      className="flex items-center gap-2 rounded-md border border-border bg-muted/10 px-3 py-2 text-sm"
+                      className="space-y-2 rounded-md border border-border bg-muted/10 px-3 py-2 text-sm"
                     >
-                      <Sparkles className="size-4 shrink-0 text-sky-400" />
-                      <span>✓ searched marketplace ({item.searchCount ?? 0} products)</span>
+                      <p className="flex items-center gap-2">
+                        <Sparkles className="size-4 shrink-0 text-sky-400" />
+                        <span>✓ searched marketplace ({item.searchCount ?? 0} products)</span>
+                      </p>
+                      {products.length > 0 ? (
+                        <ul className="space-y-1.5 border-t border-border/60 pt-2 text-xs">
+                          {products.slice(0, 6).map((p) => {
+                            const m = p.merchant;
+                            const score =
+                              m?.trust_score === null || m?.trust_score === undefined
+                                ? null
+                                : Number(m.trust_score);
+                            return (
+                              <li key={p.product_id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span className="font-medium text-foreground/90">{p.name}</span>
+                                {m ? (
+                                  <>
+                                    <span className="font-mono text-muted-foreground">
+                                      trust {score !== null ? score : "—"}
+                                    </span>
+                                    <Badge variant="neutral" className="font-normal normal-case tracking-normal">
+                                      {trustSourceLabel(m.trust_score_source)}
+                                    </Badge>
+                                    {m.verified ? (
+                                      <Badge variant="emerald" className="font-normal normal-case tracking-normal">
+                                        Verified
+                                      </Badge>
+                                    ) : null}
+                                  </>
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
+                    </li>
+                  );
+                }
+                if (item.kind === "halt") {
+                  return (
+                    <li
+                      key={item.id}
+                      className="rounded-lg border border-red-500/50 bg-red-600/15 px-4 py-4 text-red-100"
+                    >
+                      <p className="flex items-center gap-2 text-sm font-semibold text-red-300">
+                        <OctagonAlert className="size-5 shrink-0" />
+                        AGENT HALTED — kill switch
+                      </p>
+                      {item.haltReason ? (
+                        <p className="mt-2 text-xs text-red-200/90">{item.haltReason}</p>
+                      ) : null}
                     </li>
                   );
                 }
@@ -476,7 +625,7 @@ export function PlaygroundClient({
                 }
                 return null;
               })}
-              {running ? (
+              {running && !agentHalted ? (
                 <li className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
                   Agent running…

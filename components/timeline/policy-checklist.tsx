@@ -96,6 +96,99 @@ function linesFromRules(
   return rows;
 }
 
+function trustSourceLabel(source: unknown): string {
+  if (source === "fixture") return "demo fixture";
+  if (source === "scamadvisor") return "ScamAdvisor";
+  return typeof source === "string" ? source : "unknown";
+}
+
+function linesFromGuardrailChecks(
+  guardrails: unknown,
+): { passed: boolean; label: string; detail?: string }[] {
+  if (!guardrails || typeof guardrails !== "object") return [];
+  const checks = guardrails as Record<string, RuleEntry>;
+  const rows: { passed: boolean; label: string; detail?: string }[] = [];
+
+  const agentActive = checks.agent_active;
+  if (agentActive) {
+    const status = typeof agentActive.status === "string" ? agentActive.status : "unknown";
+    rows.push(
+      ruleRow(
+        agentActive.passed,
+        "Agent status",
+        agentActive.passed ? "Agent active" : `Agent ${status} — proposals blocked`,
+      ),
+    );
+  }
+
+  const trust = checks.merchant_trust;
+  if (trust) {
+    const score = typeof trust.trustScore === "number" ? trust.trustScore : null;
+    const min = typeof trust.minTrustScore === "number" ? trust.minTrustScore : null;
+    const source = trustSourceLabel(trust.trustSource);
+    const domain = typeof trust.domain === "string" ? trust.domain : null;
+    const override = trust.overrideApplied === true;
+    let detail = domain ? `${domain}` : "Merchant domain";
+    if (override) detail += " · human override";
+    else if (score !== null && min !== null) detail += ` · trust ${score} (${source}) · min ${min}`;
+    else detail += " · trust score unavailable";
+    rows.push(ruleRow(trust.passed, "Merchant trust", detail));
+  }
+
+  const jev = checks.jev_available;
+  if (jev && jev.passed === false) {
+    rows.push(ruleRow(false, "Jev risk signals", String(jev.reason ?? "Unavailable — escalates to human")));
+  }
+
+  const injection = checks.prompt_injection;
+  if (injection && injection.skipped !== true) {
+    const score = typeof injection.score === "number" ? injection.score : null;
+    const threshold = typeof injection.threshold === "number" ? injection.threshold : null;
+    rows.push(
+      ruleRow(
+        injection.passed,
+        "Prompt injection",
+        score !== null && threshold !== null
+          ? `score ${score.toFixed(2)} · kill ≥ ${threshold.toFixed(2)}`
+          : undefined,
+      ),
+    );
+  }
+
+  const crypto = checks.crypto_exfiltration;
+  if (crypto && crypto.skipped !== true) {
+    const score = typeof crypto.score === "number" ? crypto.score : null;
+    const threshold = typeof crypto.threshold === "number" ? crypto.threshold : null;
+    rows.push(
+      ruleRow(
+        crypto.passed,
+        "Crypto exfiltration",
+        score !== null && threshold !== null
+          ? `score ${score.toFixed(2)} · kill ≥ ${threshold.toFixed(2)}`
+          : undefined,
+      ),
+    );
+  }
+
+  const price = checks.price_anomaly;
+  if (price && price.skipped !== true) {
+    const score = typeof price.score === "number" ? price.score : null;
+    const deny = typeof price.denyThreshold === "number" ? price.denyThreshold : null;
+    const review = typeof price.reviewThreshold === "number" ? price.reviewThreshold : null;
+    rows.push(
+      ruleRow(
+        price.passed,
+        "Price anomaly",
+        score !== null && deny !== null && review !== null
+          ? `score ${score.toFixed(2)} · deny ≥ ${deny.toFixed(2)} · review ≥ ${review.toFixed(2)}`
+          : undefined,
+      ),
+    );
+  }
+
+  return rows;
+}
+
 export interface PolicyChecklistProps {
   decision: PolicyDecisionRow | null;
   merchantDisplayName?: string;
@@ -109,7 +202,11 @@ export function PolicyChecklist({ decision, merchantDisplayName, className }: Po
     );
   }
 
-  const rows = linesFromRules(decision.rules_evaluated as Record<string, RuleEntry>, merchantDisplayName);
+  const rules = decision.rules_evaluated as Record<string, RuleEntry>;
+  const rows = [
+    ...linesFromRules(rules, merchantDisplayName),
+    ...linesFromGuardrailChecks(rules.guardrails),
+  ];
 
   return (
     <ul className={cn("space-y-2", className)}>

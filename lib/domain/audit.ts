@@ -29,7 +29,10 @@ export type AuditEventType =
   | "DUPLICATE_EXECUTION_BLOCKED"
   | "REPLAY_ATTEMPT_BLOCKED"
   | "EVALUATION_FAILED_CLOSED"
-  | "DEMO_RESET";
+  | "DEMO_RESET"
+  | "GUARDRAILS_EVALUATED"
+  | "AGENT_KILL_SWITCH_TRIGGERED"
+  | "AGENT_REENABLED";
 
 export interface AppendAuditInput {
   principalId: string;

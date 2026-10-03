@@ -17,12 +17,22 @@ export class OpenAIAgentProvider implements AgentProvider {
   async runAgent(input: RunAgentInput): Promise<AgentResult> {
     const openai = createOpenAI({ apiKey: this.apiKey });
     let callSeq = 0;
+    // Our own abort controller: the kill switch stops the agent loop immediately.
+    const halt = new AbortController();
+    input.abortSignal?.addEventListener("abort", () => halt.abort());
+    let halted: string | null = null;
     const wrap = <I, O>(name: AgentToolName, fn: (args: I) => Promise<O>) => async (args: I) => {
       const id = `${name}-${++callSeq}`;
       input.onActivity({ type: "tool_call", id, tool: name, input: args });
       try {
         const output = await fn(args);
         input.onActivity({ type: "tool_result", id, tool: name, output });
+        const ks = (output as { kill_switch?: { triggered?: boolean; reason?: string | null } } | null)?.kill_switch;
+        if (ks?.triggered) {
+          halted = ks.reason ?? "kill switch";
+          input.onActivity({ type: "status", message: `AGENT HALTED by AgentLedger kill switch: ${halted}` });
+          halt.abort();
+        }
         return output;
       } catch (error) {
         const output = { status: "error", message: "Action could not be evaluated safely, so AgentLedger denied execution." };
@@ -74,7 +84,14 @@ export class OpenAIAgentProvider implements AgentProvider {
     });
 
     input.onActivity({ type: "status", message: `Running ${this.model} via OpenAI Responses API` });
-    const result = await agent.generate({ prompt: input.prompt, abortSignal: input.abortSignal });
-    return { text: result.text, steps: result.steps.length };
+    try {
+      const result = await agent.generate({ prompt: input.prompt, abortSignal: halt.signal });
+      return { text: result.text, steps: result.steps.length };
+    } catch (error) {
+      if (halted) {
+        return { text: `Stopped: AgentLedger's kill switch suspended this agent (${halted}). A human must review and re-enable it.`, steps: callSeq };
+      }
+      throw error;
+    }
   }
 }

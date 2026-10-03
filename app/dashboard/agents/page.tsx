@@ -3,6 +3,7 @@ import { formatDateTime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/code-block";
+import { ReenableAgentButton } from "@/components/dashboard/kill-switch-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,13 @@ export default async function AgentsPage() {
                     {agentTypeLabel(agent.agent_type)}
                   </Badge>
                   <Badge
-                    variant={agent.status === "active" ? "emerald" : "neutral"}
+                    variant={
+                      agent.status === "active"
+                        ? "emerald"
+                        : agent.status === "suspended"
+                          ? "red"
+                          : "neutral"
+                    }
                     className="normal-case tracking-normal"
                   >
                     {agent.status}
@@ -62,6 +69,16 @@ export default async function AgentsPage() {
               <CardContent className="space-y-3">
                 {agent.description ? (
                   <p className="text-sm text-muted-foreground">{agent.description}</p>
+                ) : null}
+                {agent.status === "suspended" ? (
+                  <div className="space-y-2 rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2">
+                    <p className="text-sm font-medium text-red-400">Kill switch active</p>
+                    <p className="text-xs text-red-200/90">
+                      {agent.suspended_reason?.trim() || "Agent halted by guardrails"}
+                      {agent.suspended_at ? ` · ${formatDateTime(agent.suspended_at)}` : null}
+                    </p>
+                    <ReenableAgentButton agentId={agent.id} />
+                  </div>
                 ) : null}
                 <p className="font-mono text-xs text-muted-foreground">{agent.id}</p>
               </CardContent>

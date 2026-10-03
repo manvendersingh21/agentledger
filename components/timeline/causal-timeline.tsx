@@ -187,6 +187,62 @@ function intentEventNode(
         title: "Policy evaluation started",
         body: <p className="text-xs text-muted-foreground">Deterministic rules against delegation</p>,
       };
+    case "GUARDRAILS_EVALUATED": {
+      const risk = asRecord(data.risk_signals);
+      const inj = typeof risk.promptInjection === "number" ? risk.promptInjection : null;
+      const crypto = typeof risk.cryptoExfiltration === "number" ? risk.cryptoExfiltration : null;
+      const price = typeof risk.priceAnomaly === "number" ? risk.priceAnomaly : null;
+      const source =
+        typeof data.signal_source === "string" ? data.signal_source : "Jev assessment";
+      return {
+        id: event.id,
+        at: event.created_at,
+        tone: "neutral",
+        title: "Guardrails evaluated",
+        body: (
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p className="text-xs">{source}</p>
+            {inj !== null && crypto !== null && price !== null ? (
+              <p className="font-mono text-xs text-foreground/80">
+                injection {inj.toFixed(2)} · price anomaly {price.toFixed(2)} · crypto{" "}
+                {crypto.toFixed(2)}
+              </p>
+            ) : (
+              <p className="text-xs text-amber-400/90">Risk signals unavailable — fails toward human approval</p>
+            )}
+            <PolicyChecklist decision={input.decision} merchantDisplayName={merchant} />
+          </div>
+        ),
+      };
+    }
+    case "AGENT_KILL_SWITCH_TRIGGERED":
+      return {
+        id: event.id,
+        at: event.created_at,
+        tone: "red",
+        title: "Agent kill switch triggered",
+        emphasis: "blocked",
+        body: (
+          <div className="rounded-md border border-red-500/50 bg-red-500/15 px-4 py-3 text-sm text-red-100">
+            <p className="text-base font-semibold uppercase tracking-wide text-red-300">
+              AGENT HALTED
+            </p>
+            <p className="mt-2">{String(data.reason ?? "Injection or exfiltration threshold exceeded")}</p>
+          </div>
+        ),
+      };
+    case "AGENT_REENABLED":
+      return {
+        id: event.id,
+        at: event.created_at,
+        tone: "emerald",
+        title: "Agent re-enabled",
+        body: (
+          <p className="text-sm text-muted-foreground">
+            Human cleared kill switch · channel {String(data.channel ?? "dashboard")}
+          </p>
+        ),
+      };
     case "POLICY_DENIED":
       return {
         id: event.id,

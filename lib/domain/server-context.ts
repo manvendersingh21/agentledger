@@ -15,5 +15,5 @@ export async function getDomainContext(channel: string): Promise<{ ctx: DomainCo
     preferred: serverEnv.paymentProvider(),
     stripeSecretKey: serverEnv.stripeSecretKey(),
   });
-  return { ctx: { db, principalId: principal.id, agentId, payments, channel }, principal };
+  return { ctx: { db, principalId: principal.id, agentId, payments, channel, jevApiKey: serverEnv.jevApiKey() }, principal };
 }

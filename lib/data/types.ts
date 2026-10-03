@@ -104,6 +104,13 @@ export interface DelegationRow {
   valid_from: string;
   valid_until: string | null;
   status: "active" | "disabled" | "revoked";
+  min_trust_score?: number;
+  trusted_domain_overrides?: string[];
+  price_anomaly_deny_threshold?: number;
+  price_anomaly_review_threshold?: number;
+  injection_kill_threshold?: number;
+  kill_switch_enabled?: boolean;
+  require_verified_merchant?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -114,7 +121,9 @@ export interface AgentRow {
   name: string;
   description: string | null;
   agent_type: string;
-  status: "active" | "disabled";
+  status: "active" | "disabled" | "suspended";
+  suspended_at?: string | null;
+  suspended_reason?: string | null;
   created_at: string;
 }
 
