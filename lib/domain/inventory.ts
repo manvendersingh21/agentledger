@@ -218,6 +218,20 @@ export async function applyReceiptToInventory(
   const quantity = typeof payload.quantity === "number" ? payload.quantity : 1;
   const add = meta.inventory_unit_add * quantity;
 
+  // Claim the applied flag FIRST with a conditional update: two concurrent callers (restock
+  // route + a reconcile from another request) would otherwise both read the unset flag and
+  // double-increment on_hand. Only the caller whose claim lands may increment.
+  const appliedAt = new Date().toISOString();
+  const { data: claimed, error: claimErr } = await ctx.db
+    .from("action_intents")
+    .update({ payload: { ...payload, inventory_receipt_applied: appliedAt } })
+    .eq("id", intentId)
+    .eq("principal_id", ctx.principalId)
+    .is("payload->>inventory_receipt_applied", null)
+    .select("id");
+  if (claimErr) throw new Error(`inventory receipt claim failed: ${claimErr.message}`);
+  if (!claimed || claimed.length === 0) return { applied: false };
+
   const { data: item, error: itemErr } = await ctx.db
     .from("inventory_items")
     .select("on_hand")
@@ -234,15 +248,6 @@ export async function applyReceiptToInventory(
     .eq("id", meta.inventory_item_id)
     .eq("principal_id", ctx.principalId);
   if (updErr) throw new Error(`inventory increment failed: ${updErr.message}`);
-
-  const appliedAt = new Date().toISOString();
-  await ctx.db
-    .from("action_intents")
-    .update({
-      payload: { ...payload, inventory_receipt_applied: appliedAt },
-    })
-    .eq("id", intentId)
-    .eq("principal_id", ctx.principalId);
 
   return { applied: true, inventory_item_id: meta.inventory_item_id, new_on_hand: newOnHand };
 }
@@ -346,6 +351,32 @@ function mapProposeToLine(
       ...base,
       outcome: "auto_bought",
       message: "Purchase already executed (duplicate prevented).",
+      intent_id: propose.intent_id,
+    };
+  }
+  if (propose.status === "replay") {
+    // Routine on a second autopilot run: the deterministic idempotency key matches an intent
+    // that is still in flight. Map by the original intent's current status instead of "blocked".
+    if (propose.current_status === "executed") {
+      return {
+        ...base,
+        outcome: "auto_bought",
+        message: "Already proposed — the identical purchase was executed (replay prevented).",
+        intent_id: propose.intent_id,
+      };
+    }
+    if (propose.current_status === "awaiting_approval") {
+      return {
+        ...base,
+        outcome: "waiting",
+        message: "Already proposed — the identical purchase is still awaiting human approval.",
+        intent_id: propose.intent_id,
+      };
+    }
+    return {
+      ...base,
+      outcome: "skipped",
+      message: `Already proposed (current status: ${propose.current_status}).`,
       intent_id: propose.intent_id,
     };
   }

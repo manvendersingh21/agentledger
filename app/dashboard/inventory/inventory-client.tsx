@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LiveApprovals } from "@/components/approvals/live-approvals";
 import { ArrowButton } from "@/components/brand/arrow-button";
@@ -74,10 +74,20 @@ export function InventoryClient({
   const [results, setResults] = useState<RestockLineResult[]>([]);
   const [busy, setBusy] = useState<"simulate" | "restock" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Synchronous guard: `busy` state is stale within the same tick, so a rapid double-click
+  // would fire two simulate/restock requests before React re-renders the disabled buttons.
+  const busyRef = useRef(false);
 
   const onRealtime = useCallback(
     (change: LedgerChange) => {
-      if (shouldRefresh(change)) router.refresh();
+      if (!shouldRefresh(change)) return;
+      if (change.table === "receipts") {
+        // An inline-approved autopilot purchase executed: GET /api/inventory reconciles the
+        // receipt into on_hand before we re-render, otherwise the table shows stale stock.
+        void fetch("/api/inventory").catch(() => undefined).finally(() => router.refresh());
+        return;
+      }
+      router.refresh();
     },
     [router],
   );
@@ -85,32 +95,38 @@ export function InventoryClient({
   useLedgerRealtime(userId, onRealtime);
 
   async function runSimulate() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError(null);
     setBusy("simulate");
     try {
       const res = await fetch("/api/inventory/simulate", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const json = (await res.json()) as { message?: string };
+      const json = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) throw new Error(json.message ?? "Simulate failed");
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Simulate failed");
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
 
   async function runAutopilot() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError(null);
     setBusy("restock");
     try {
       const res = await fetch("/api/inventory/restock", { method: "POST" });
-      const json = (await res.json()) as { results?: RestockLineResult[]; message?: string };
+      const json = (await res.json().catch(() => ({}))) as { results?: RestockLineResult[]; message?: string };
       if (!res.ok) throw new Error(json.message ?? "Restock failed");
       if (json.results) setResults(json.results);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Restock failed");
     } finally {
+      busyRef.current = false;
       setBusy(null);
     }
   }
@@ -146,7 +162,7 @@ export function InventoryClient({
 
       <section className="space-y-4">
         <h2 className="font-display text-xl font-semibold tracking-[-0.03em] text-ink sm:text-2xl">Stock on hand</h2>
-        <div className="overflow-hidden rounded-[6px] border border-line bg-surface">
+        <div className="overflow-x-auto rounded-[6px] border border-line bg-surface">
           <table className="w-full min-w-[640px] text-left text-[15px]">
             <thead>
               <tr className="border-b border-line bg-canvas text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">

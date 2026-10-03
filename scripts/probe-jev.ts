@@ -37,6 +37,9 @@ const listings: { label: string; input: AssessListingInput }[] = [
       currency: "usd",
       recurring: false,
       requestsPerMonth: 100_000,
+      merchantTrustScore: 98,
+      merchantTrustSource: "fixture",
+      merchantVerified: true,
     },
   },
   {
@@ -51,6 +54,9 @@ const listings: { label: string; input: AssessListingInput }[] = [
       currency: "usd",
       recurring: false,
       requestsPerMonth: 150_000,
+      merchantTrustScore: 97,
+      merchantTrustSource: "fixture",
+      merchantVerified: true,
     },
   },
   {
@@ -65,6 +71,9 @@ const listings: { label: string; input: AssessListingInput }[] = [
       currency: "usd",
       recurring: true,
       requestsPerMonth: 250_000,
+      merchantTrustScore: 96,
+      merchantTrustSource: "fixture",
+      merchantVerified: false,
     },
   },
   {
@@ -79,6 +88,9 @@ const listings: { label: string; input: AssessListingInput }[] = [
       currency: "usd",
       recurring: false,
       requestsPerMonth: 10_000,
+      merchantTrustScore: 91,
+      merchantTrustSource: "fixture",
+      merchantVerified: false,
     },
   },
   {
@@ -99,6 +111,9 @@ const listings: { label: string; input: AssessListingInput }[] = [
       currency: "usd",
       recurring: true,
       requestsPerMonth: 999_999_999,
+      merchantTrustScore: 12,
+      merchantTrustSource: "fixture",
+      merchantVerified: false,
     },
   },
 ];
@@ -111,8 +126,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log("Listing                      | promptInj | cryptoExf | priceAnom");
-  console.log("-----------------------------|-----------|-----------|----------");
+  console.log("Listing                      | promptInj | cryptoExf | priceAnom | merchRisk");
+  console.log("-----------------------------|-----------|-----------|-----------|----------");
 
   for (const { label, input } of listings) {
     const result = await assessListing(input, { apiKey });
@@ -121,6 +136,7 @@ async function main(): Promise<void> {
       result.promptInjection.toFixed(3).padStart(9),
       result.cryptoExfiltration.toFixed(3).padStart(9),
       result.priceAnomaly.toFixed(3).padStart(9),
+      result.merchantRisk.toFixed(3).padStart(9),
     ].join(" | ");
     console.log(row);
   }

@@ -7,6 +7,7 @@ import {
   OctagonX,
   ScrollText,
   ShieldCheck,
+  Store,
   UserCheck,
 } from "lucide-react";
 import { ArrowButton } from "@/components/brand/arrow-button";
@@ -20,6 +21,7 @@ const NAV_LINKS = [
   { href: "#security", label: "Security" },
   { href: "#mcp", label: "MCP" },
   { href: "#flow", label: "Docs" },
+  { href: "/merchants", label: "For merchants" },
 ];
 
 const STATS = [
@@ -146,6 +148,36 @@ export default function Home() {
               </li>
             ))}
           </ul>
+        </section>
+
+        {/* For merchants */}
+        <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
+          <div className="grid gap-4 rounded-md border border-line bg-surface p-8 md:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)] md:p-10">
+            <div className="max-w-3xl space-y-5">
+              <Eyebrow>For merchants</Eyebrow>
+              <h2 className="font-display text-4xl font-semibold leading-[0.95] tracking-[-0.045em] md:text-6xl">
+                Make your store <span className="text-accent">agent-ready.</span>
+              </h2>
+              <p className="max-w-2xl text-[15px] leading-relaxed text-ink-2">
+                Verify your domain, publish an authoritative catalog, and make your products
+                purchasable by MCP agents through buyer-controlled policy.
+              </p>
+              <ArrowButton href="/merchants">Explore merchant access</ArrowButton>
+            </div>
+            <div className="flex min-h-64 flex-col justify-between rounded-md bg-inverse p-7 text-white">
+              <Store className="size-6 text-accent-soft" aria-hidden />
+              <div>
+                <p className="font-display text-3xl font-semibold leading-none tracking-[-0.04em]">
+                  One feed.
+                  <br />
+                  Any MCP agent.
+                </p>
+                <p className="mt-4 text-sm leading-relaxed text-white/60">
+                  Unverified websites still work through a fallback that always requires human approval.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* Product */}

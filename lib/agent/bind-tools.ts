@@ -1,4 +1,5 @@
 import "server-only";
+import { checkMerchant, proposeExternalPurchase } from "@/lib/domain/external";
 import {
   getActionStatus,
   getReceipt,
@@ -15,6 +16,8 @@ export function bindAgentTools(ctx: DomainContext): AgentTools {
     list_delegations: () => listDelegations(ctx),
     search_products: ({ query }) => searchProducts(ctx, query),
     propose_purchase: (args) => proposePurchase(ctx, args),
+    check_merchant: (args) => checkMerchant(ctx, args),
+    propose_external_purchase: (args) => proposeExternalPurchase(ctx, args),
     get_action_status: ({ intent_id }) => getActionStatus(ctx, intent_id),
     get_receipt: (args) => getReceipt(ctx, args),
   };

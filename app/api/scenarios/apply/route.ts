@@ -7,7 +7,7 @@ import { errorResponse, unauthorized } from "@/lib/domain/http";
 
 export const runtime = "nodejs";
 
-const ScenarioId = z.enum(["home", "diy", "restaurant", "software"]);
+const ScenarioId = z.enum(["home", "diy", "restaurant", "grocery", "software"]);
 
 const BLOCKED_CATEGORIES = ["crypto", "gift_card", "wire_transfer"] as const;
 
@@ -43,6 +43,14 @@ const PRESETS: Record<z.infer<typeof ScenarioId>, ScenarioPreset> = {
     daily_limit_cents: 60_000,
     approval_threshold_cents: 7_500,
     allowed_categories: ["restaurant_food", "restaurant_supplies"],
+    allow_recurring: false,
+  },
+  grocery: {
+    scenario: "grocery",
+    max_amount_cents: 8_000,
+    daily_limit_cents: 15_000,
+    approval_threshold_cents: 4_000,
+    allowed_categories: ["grocery"],
     allow_recurring: false,
   },
   software: {

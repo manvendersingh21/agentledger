@@ -8,12 +8,28 @@ export type AgentActivity =
   | { type: "error"; message: string }
   | { type: "done"; text: string; steps: number };
 
-export type AgentToolName = "list_delegations" | "search_products" | "propose_purchase" | "get_action_status" | "get_receipt";
+export type AgentToolName =
+  | "list_delegations"
+  | "search_products"
+  | "plan_recipe"
+  | "propose_purchase"
+  | "check_merchant"
+  | "propose_external_purchase"
+  | "get_action_status"
+  | "get_receipt";
 
 export interface AgentTools {
   list_delegations(): Promise<unknown>;
   search_products(input: { query: string }): Promise<unknown>;
   propose_purchase(input: { product_id: string; quantity?: number; reason?: string }): Promise<unknown>;
+  check_merchant(input: { domain: string }): Promise<unknown>;
+  propose_external_purchase(input: {
+    url: string;
+    item_name: string;
+    claimed_price_cents: number;
+    quantity?: number;
+    reason?: string;
+  }): Promise<unknown>;
   get_action_status(input: { intent_id: string }): Promise<unknown>;
   get_receipt(input: { receipt_id?: string; intent_id?: string }): Promise<unknown>;
 }

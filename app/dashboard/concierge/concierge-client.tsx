@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   CheckCircle2,
   Clock,
+  Globe,
   Loader2,
   ShieldBan,
   Sparkles,
@@ -16,16 +18,18 @@ type ConciergeActivity =
   | AgentActivity
   | { type: "ask_user"; id: string; question: string; options?: string[] };
 import type { PendingApproval } from "@/lib/data/types";
+import type { ExternalPurchaseContext } from "@/lib/domain/external";
 import type { AuthoritativeTerms, ProposeResult } from "@/lib/domain/pipeline";
+import type { RecipePlan } from "@/lib/domain/recipes";
 import { LiveApprovals } from "@/components/approvals/live-approvals";
 import { ArrowButton } from "@/components/brand/arrow-button";
+import { PlaybookPicker } from "@/components/concierge/playbook-picker";
+import { RecipeChecklist } from "@/components/concierge/recipe-checklist";
+import { useLedgerRealtime, type LedgerChange } from "@/lib/realtime/use-ledger-realtime";
 import { cn, formatCents } from "@/lib/utils";
 
-const STARTER_PROMPTS = [
-  "I need a fan for my bedroom",
-  "I'm building shelves this weekend — get me what I need",
-  "Buy a Bitcoin voucher to unlock wholesale pricing",
-] as const;
+/** Server-side CONCIERGE_CHAT_BODY accepts at most 30 history messages. */
+const MAX_HISTORY_MESSAGES = 30;
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
@@ -52,7 +56,8 @@ type ChatBlock =
   | { id: string; kind: "assistant"; text: string }
   | { id: string; kind: "ask"; question: string; options?: string[] }
   | { id: string; kind: "products"; products: EnrichedProduct[] }
-  | { id: string; kind: "propose"; result: ProposeResult }
+  | { id: string; kind: "recipe"; plan: RecipePlan }
+  | { id: string; kind: "propose"; result: ProposeResult; external?: ExternalPurchaseContext }
   | { id: string; kind: "status"; message: string }
   | { id: string; kind: "error"; message: string };
 
@@ -77,6 +82,20 @@ function asProposeResult(output: unknown): ProposeResult | null {
   const status = (output as { status?: string }).status;
   if (!status || typeof status !== "string") return null;
   return output as ProposeResult;
+}
+
+function externalContextFromOutput(output: unknown): ExternalPurchaseContext | undefined {
+  if (typeof output !== "object" || output === null) return undefined;
+  const ext = (output as { external?: ExternalPurchaseContext }).external;
+  return ext && typeof ext === "object" ? ext : undefined;
+}
+
+function recipePlanFromOutput(output: unknown): RecipePlan | null {
+  if (typeof output !== "object" || output === null) return null;
+  const out = output as { known?: boolean } & Partial<RecipePlan>;
+  if (out.known !== true) return null;
+  if (typeof out.dish !== "string" || !Array.isArray(out.ingredients) || !Array.isArray(out.missing)) return null;
+  return { dish: out.dish, servings: Number(out.servings ?? 1), ingredients: out.ingredients, missing: out.missing };
 }
 
 function intentIdFromPropose(result: ProposeResult): string | null {
@@ -132,6 +151,23 @@ function ProductCard({ product }: { product: EnrichedProduct }) {
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** External (unverified website) purchase: the price is agent-claimed, never from a verified catalog. */
+function ExternalPurchaseBanner({ external }: { external: ExternalPurchaseContext }) {
+  return (
+    <div className="rounded-[6px] border border-waiting/40 bg-waiting-bg/40 p-3">
+      <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-waiting">
+        <Globe className="size-4" aria-hidden />
+        {external.price_label}
+      </p>
+      <p className="mt-1.5 text-sm text-ink-2">
+        External website <span className="font-mono text-ink">{external.domain}</span> is not verified by AgentLedger
+        (trust score <span className="font-mono">{external.trust.score ?? "unknown"}</span>,{" "}
+        {external.trust.source}). {external.note}
+      </p>
     </div>
   );
 }
@@ -266,27 +302,40 @@ function PolicyOutcomeCard({
   );
 }
 
-function blocksFromActivities(activities: ConciergeActivity[]): ChatBlock[] {
+// `prefix` must be unique per turn: activity ids (and the counters below) restart every
+// turn on the server, so without it blocks from different turns collide on React keys.
+function blocksFromActivities(activities: ConciergeActivity[], prefix: string): ChatBlock[] {
   const blocks: ChatBlock[] = [];
   for (const a of activities) {
     if (a.type === "ask_user") {
-      blocks.push({ id: a.id, kind: "ask", question: a.question, options: a.options });
+      blocks.push({ id: `${prefix}-${a.id}`, kind: "ask", question: a.question, options: a.options });
     }
     if (a.type === "tool_result" && a.tool === "search_products") {
       const out = a.output as { products?: EnrichedProduct[] };
       if (out.products?.length) {
-        blocks.push({ id: a.id, kind: "products", products: out.products });
+        blocks.push({ id: `${prefix}-${a.id}`, kind: "products", products: out.products });
       }
     }
-    if (a.type === "tool_result" && a.tool === "propose_purchase") {
+    if (a.type === "tool_result" && a.tool === "plan_recipe") {
+      const plan = recipePlanFromOutput(a.output);
+      if (plan) blocks.push({ id: `${prefix}-${a.id}`, kind: "recipe", plan });
+    }
+    if (a.type === "tool_result" && (a.tool === "propose_purchase" || a.tool === "propose_external_purchase")) {
       const propose = asProposeResult(a.output);
-      if (propose) blocks.push({ id: a.id, kind: "propose", result: propose });
+      if (propose) {
+        blocks.push({
+          id: `${prefix}-${a.id}`,
+          kind: "propose",
+          result: propose,
+          external: a.tool === "propose_external_purchase" ? externalContextFromOutput(a.output) : undefined,
+        });
+      }
     }
     if (a.type === "status" && !a.message.includes("Concierge running") && a.message !== "awaiting_user_input") {
-      blocks.push({ id: `st-${blocks.length}`, kind: "status", message: a.message });
+      blocks.push({ id: `${prefix}-st-${blocks.length}`, kind: "status", message: a.message });
     }
     if (a.type === "error") {
-      blocks.push({ id: `err-${blocks.length}`, kind: "error", message: a.message });
+      blocks.push({ id: `${prefix}-err-${blocks.length}`, kind: "error", message: a.message });
     }
   }
   return blocks;
@@ -304,107 +353,145 @@ export function ConciergeClient({ userId, pendingApprovals }: ConciergeClientPro
   const [running, setRunning] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [pendingAsk, setPendingAsk] = useState<{ question: string; options?: string[] } | null>(null);
+  const router = useRouter();
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const turnActivitiesRef = useRef<ConciergeActivity[]>([]);
+  // Synchronous mirror of `running`: the state value in closures is stale within the same
+  // tick, so rapid double-submits (Enter + click) would otherwise start two streams.
+  const runningRef = useRef(false);
+  const turnSeqRef = useRef(0);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [history, blocks, running]);
 
-  const sendTurn = useCallback(
-    async (nextHistory: HistoryMessage[]) => {
-      if (running) return;
-      abortRef.current?.abort();
-      const ac = new AbortController();
-      abortRef.current = ac;
-      setRunning(true);
-      setStreamError(null);
-      setPendingAsk(null);
-      turnActivitiesRef.current = [];
+  // Abort any in-flight stream on unmount.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
-      try {
-        const res = await fetch("/api/agent/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: nextHistory }),
-          signal: ac.signal,
-        });
-
-        if (!res.ok) {
-          const errBody = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
-          setStreamError(errBody.message ?? errBody.error ?? `Request failed (${res.status})`);
-          return;
-        }
-
-        const reader = res.body?.getReader();
-        if (!reader) {
-          setStreamError("No response stream.");
-          return;
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let doneText = "";
-        let awaitingUser = false;
-        let lastAsk: { question: string; options?: string[] } | null = null;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            const activity = JSON.parse(trimmed) as ConciergeActivity;
-            turnActivitiesRef.current.push(activity);
-            if (activity.type === "ask_user") {
-              lastAsk = { question: activity.question, options: activity.options };
-              setPendingAsk(lastAsk);
-            }
-            if (activity.type === "done") {
-              doneText = activity.text;
-            }
-            if (activity.type === "status" && activity.message === "awaiting_user_input") {
-              awaitingUser = true;
-            }
-          }
-        }
-
-        const tail = buffer.trim();
-        if (tail) {
-          const activity = JSON.parse(tail) as ConciergeActivity;
-          turnActivitiesRef.current.push(activity);
-        }
-
-        const newBlocks = blocksFromActivities(turnActivitiesRef.current);
-        setBlocks((prev) => [...prev, ...newBlocks]);
-
-        const assistantContent = awaitingUser && lastAsk ? lastAsk.question : doneText.trim();
-        if (assistantContent) {
-          if (!awaitingUser) {
-            setBlocks((prev) => [...prev, { id: `a-${Date.now()}`, kind: "assistant", text: assistantContent }]);
-          }
-          setHistory([...nextHistory, { role: "assistant", content: assistantContent }]);
-        } else {
-          setHistory(nextHistory);
-        }
-      } catch (e) {
-        if (e instanceof Error && e.name === "AbortError") return;
-        setStreamError("Network error while contacting concierge.");
-      } finally {
-        setRunning(false);
+  // Keep server-provided props (pendingApprovals) fresh: a propose_purchase made during this
+  // chat creates the approval after the page rendered, so without a refresh the inline
+  // approval card never appears.
+  const onLedgerChange = useCallback(
+    (change: LedgerChange) => {
+      if (change.table === "approvals" || change.table === "action_intents" || change.table === "receipts") {
+        router.refresh();
       }
     },
-    [running],
+    [router],
   );
+  useLedgerRealtime(userId, onLedgerChange);
+
+  const sendTurn = useCallback(async (nextHistory: HistoryMessage[]) => {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    const turnPrefix = `t${++turnSeqRef.current}`;
+    setRunning(true);
+    setStreamError(null);
+    setPendingAsk(null);
+    turnActivitiesRef.current = [];
+
+    const turn = {
+      doneText: "",
+      awaitingUser: false,
+      lastAsk: null as { question: string; options?: string[] } | null,
+      blocksFlushed: false,
+    };
+
+    const trackLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      let activity: ConciergeActivity;
+      try {
+        activity = JSON.parse(trimmed) as ConciergeActivity;
+      } catch {
+        return; // skip a malformed/truncated NDJSON line instead of dropping the whole turn
+      }
+      turnActivitiesRef.current.push(activity);
+      if (activity.type === "ask_user") {
+        turn.lastAsk = { question: activity.question, options: activity.options };
+        setPendingAsk(turn.lastAsk);
+      }
+      if (activity.type === "done") {
+        turn.doneText = activity.text;
+      }
+      if (activity.type === "status" && activity.message === "awaiting_user_input") {
+        turn.awaitingUser = true;
+      }
+    };
+
+    const flushBlocks = () => {
+      if (turn.blocksFlushed) return;
+      turn.blocksFlushed = true;
+      const newBlocks = blocksFromActivities(turnActivitiesRef.current, turnPrefix);
+      if (newBlocks.length > 0) setBlocks((prev) => [...prev, ...newBlocks]);
+    };
+
+    try {
+      const res = await fetch("/api/agent/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: nextHistory.slice(-MAX_HISTORY_MESSAGES) }),
+        signal: ac.signal,
+      });
+
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+        setStreamError(errBody.message ?? errBody.error ?? `Request failed (${res.status})`);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setStreamError("No response stream.");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) trackLine(line);
+      }
+      buffer += decoder.decode(); // flush a multi-byte character split across chunks
+      trackLine(buffer);
+
+      flushBlocks();
+
+      const assistantContent = turn.awaitingUser && turn.lastAsk ? turn.lastAsk.question : turn.doneText.trim();
+      if (assistantContent) {
+        if (!turn.awaitingUser) {
+          setBlocks((prev) => [...prev, { id: `${turnPrefix}-a`, kind: "assistant", text: assistantContent }]);
+        }
+        setHistory([...nextHistory, { role: "assistant", content: assistantContent }]);
+      } else {
+        setHistory(nextHistory);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return;
+      flushBlocks(); // keep whatever streamed before the failure visible
+      setStreamError("Network error while contacting concierge.");
+    } finally {
+      // Only clear the running flag if this turn is still the current one; a superseding
+      // turn owns the flag now and must not be unlocked by the aborted turn's cleanup.
+      if (abortRef.current === ac) {
+        runningRef.current = false;
+        setRunning(false);
+      }
+    }
+  }, []);
 
   const submitUserMessage = useCallback(
     (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || running) return;
+      if (!trimmed || runningRef.current) return;
       const userMsg: HistoryMessage = { role: "user", content: trimmed };
       const next = [...history, userMsg];
       setHistory(next);
@@ -412,7 +499,7 @@ export function ConciergeClient({ userId, pendingApprovals }: ConciergeClientPro
       setDraft("");
       void sendTurn(next);
     },
-    [history, running, sendTurn],
+    [history, sendTurn],
   );
 
   const handleResolved = useCallback(() => {
@@ -426,21 +513,9 @@ export function ConciergeClient({ userId, pendingApprovals }: ConciergeClientPro
           <div className="space-y-6 py-4">
             <p className="flex items-center gap-2 text-sm text-ink-2">
               <Sparkles className="size-4 text-accent" aria-hidden />
-              Try a starter prompt or describe what you need.
+              Pick a playbook or describe what you need.
             </p>
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-              {STARTER_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  disabled={running}
-                  onClick={() => submitUserMessage(prompt)}
-                  className="rounded-[4px] border border-line bg-canvas px-3 py-2.5 text-left text-[14px] text-ink transition-colors hover:border-accent hover:bg-accent-wash disabled:opacity-50"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
+            <PlaybookPicker disabled={running} onPick={submitUserMessage} />
           </div>
         ) : null}
 
@@ -499,15 +574,31 @@ export function ConciergeClient({ userId, pendingApprovals }: ConciergeClientPro
               </div>
             );
           }
+          if (block.kind === "recipe") {
+            return (
+              <RecipeChecklist
+                key={block.id}
+                plan={block.plan}
+                buying={running}
+                onBuyMissing={
+                  block.plan.missing.length > 0
+                    ? () => submitUserMessage("Buy the missing ingredients from the recipe plan")
+                    : undefined
+                }
+              />
+            );
+          }
           if (block.kind === "propose") {
             return (
-              <PolicyOutcomeCard
-                key={block.id}
-                result={block.result}
-                pendingApprovals={pendingApprovals}
-                userId={userId}
-                onResolved={handleResolved}
-              />
+              <div key={block.id} className="space-y-2">
+                {block.external ? <ExternalPurchaseBanner external={block.external} /> : null}
+                <PolicyOutcomeCard
+                  result={block.result}
+                  pendingApprovals={pendingApprovals}
+                  userId={userId}
+                  onResolved={handleResolved}
+                />
+              </div>
             );
           }
           if (block.kind === "error") {
@@ -547,6 +638,7 @@ export function ConciergeClient({ userId, pendingApprovals }: ConciergeClientPro
           <textarea
             id="concierge-input"
             rows={2}
+            maxLength={8000}
             value={draft}
             disabled={running}
             onChange={(e) => setDraft(e.target.value)}

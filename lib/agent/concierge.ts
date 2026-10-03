@@ -2,6 +2,7 @@ import "server-only";
 import { ToolLoopAgent, hasToolCall, isStepCount, tool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
+import { checkMerchant, proposeExternalPurchase } from "@/lib/domain/external";
 import {
   getActionStatus,
   listDelegations,
@@ -10,6 +11,8 @@ import {
   type DomainContext,
 } from "@/lib/domain/pipeline";
 import { formatUsd } from "@/lib/domain/products";
+import { planRecipe } from "@/lib/domain/recipes";
+import { buildConciergeSystemPrompt, PLAYBOOKS } from "./playbooks";
 import type { AgentActivity, AgentToolName } from "./types";
 
 export const CONCIERGE_MESSAGE_SCHEMA = z.object({
@@ -68,9 +71,20 @@ Rules:
 - Never lie about prices; only cite authoritative values from tools.
 - If propose_purchase returns denied, explain the reasons and suggest an allowed alternative — do not retry the same product.
 - If status is awaiting_approval, tell the user it is pending their approval in the dashboard and wait.
+- After proposing a purchase, include the intent_id from the tool result in your closing text so a later turn can
+  check it with get_action_status (the conversation history is text-only).
 - If executed, confirm with the receipt reference from the tool result.
 - Use ask_user when you need input; do not ask questions in plain text without calling ask_user.
-- list_delegations when you need to explain limits or categories allowed for the user.`;
+- list_delegations when you need to explain limits or categories allowed for the user.
+
+External websites (outside the AgentLedger catalog):
+- If nothing suitable exists in the AgentLedger catalog and the user names a real website, you may call
+  check_merchant with its domain and then propose_external_purchase with the exact https product URL, item name,
+  and the price in cents as the user stated or you saw it.
+- Always explain first that unverified websites need the human: external purchases are never auto-approved, and the
+  price you supply is recorded as "UNVERIFIED PRICE — agent-claimed" until the human approves it in the dashboard.
+- Never claim a website is an AgentLedger partner or verified unless check_merchant returned agentledger_verified=true.
+- Never invent an external website or URL; only use ones the user explicitly named.`;
 
 function killSwitchTriggered(output: unknown): { triggered: boolean; reason: string | null } | null {
   if (typeof output !== "object" || output === null) return null;
@@ -192,7 +206,7 @@ export async function runConcierge(input: {
 
   const agent = new ToolLoopAgent({
     model: openai.responses(input.model),
-    instructions: CONCIERGE_INSTRUCTIONS,
+    instructions: `${CONCIERGE_INSTRUCTIONS}\n\n${buildConciergeSystemPrompt(PLAYBOOKS)}`,
     stopWhen: [hasToolCall("ask_user"), isStepCount(12)],
     tools: {
       ask_user: tool({
@@ -234,6 +248,21 @@ export async function runConcierge(input: {
           return { products: enriched };
         }),
       }),
+      plan_recipe: tool({
+        description:
+          "Deterministically plan a recipe's shopping list: scaled ingredient quantities, what the user already has, and grocery search queries for the missing items. Returns known=false for unknown dishes — then ask the user to list ingredients.",
+        inputSchema: z.object({
+          dish: z.string().min(1).max(120),
+          servings: z.number().int().min(1).max(24),
+          have: z.array(z.string().min(1).max(80)).max(30).default([]),
+        }),
+        execute: wrap("plan_recipe", async (args: { dish: string; servings: number; have: string[] }) => {
+          const plan = planRecipe(args);
+          return plan
+            ? { known: true, ...plan }
+            : { known: false, message: "Unknown dish — ask the user to list the ingredients." };
+        }),
+      }),
       propose_purchase: tool({
         description:
           "Propose purchasing a product. AgentLedger evaluates policy and returns denied, awaiting_approval, or executed.",
@@ -245,6 +274,28 @@ export async function runConcierge(input: {
         execute: wrap(
           "propose_purchase",
           (args: { product_id: string; quantity?: number; reason?: string }) => proposePurchase(input.ctx, args),
+        ),
+      }),
+      check_merchant: tool({
+        description:
+          "Check whether a real-world website is a verified AgentLedger merchant and get its live trust score plus a policy preview. Read-only.",
+        inputSchema: z.object({ domain: z.string().describe('Website domain, e.g. "shop.example.com"') }),
+        execute: wrap("check_merchant", (args: { domain: string }) => checkMerchant(input.ctx, args)),
+      }),
+      propose_external_purchase: tool({
+        description:
+          "Propose buying from an EXTERNAL website the user named (not in the catalog), by https product URL. The price is agent-claimed and UNVERIFIED; AgentLedger never auto-approves external purchases — the human must approve in the dashboard.",
+        inputSchema: z.object({
+          url: z.string().describe("Full https product page URL"),
+          item_name: z.string().max(200),
+          claimed_price_cents: z.number().int().min(1).describe("Price in USD cents as seen on the website"),
+          quantity: z.number().int().min(1).max(50).optional(),
+          reason: z.string().max(1000).optional(),
+        }),
+        execute: wrap(
+          "propose_external_purchase",
+          (args: { url: string; item_name: string; claimed_price_cents: number; quantity?: number; reason?: string }) =>
+            proposeExternalPurchase(input.ctx, args),
         ),
       }),
       get_action_status: tool({

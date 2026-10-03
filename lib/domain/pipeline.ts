@@ -15,7 +15,9 @@ import {
   assessProductRisk,
   computeIntentHash,
   getAgentStatus,
+  isExternalProduct,
   productCategory,
+  reconcileExternalMerchantViolations,
   runGuardrails,
   triggerKillSwitch,
   type GuardrailPolicyRow,
@@ -274,6 +276,8 @@ export function describeViolation(code: AnyViolation, decision?: AuthorizationDe
       return "merchant is not verified in the AgentLedger registry, and your delegation requires verified merchants";
     case "WEBSITE_NOT_ALLOWED":
       return `website ${String(guard?.checks?.allowed_websites?.domain ?? "?")} is not in your allowed websites list`;
+    case "MERCHANT_RISK_HIGH":
+      return `Jev scored this merchant ${String(guard?.checks?.merchant_risk?.score ?? "?")} likely unsafe to transact with (threshold ${String(guard?.checks?.merchant_risk?.threshold ?? 0.9)}; trust ${String(guard?.checks?.merchant_trust?.trustScore ?? "unknown")} via ${String(guard?.checks?.merchant_trust?.trustSource ?? "unavailable")})`;
     case "PRICE_ANOMALY":
       return "price is far above typical market pricing for this product (Jev price check)";
     case "CATEGORY_BLOCKED": {
@@ -340,6 +344,7 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
     return { status: "rejected", error: "PRODUCT_NOT_FOUND", message: "Unknown or inactive product. No action was created." };
   }
   const category = productCategory(product);
+  const external = isExternalProduct(product);
   const terms: AuthoritativeTerms = {
     product_id: product.id,
     product_name: product.name,
@@ -406,6 +411,10 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
         channel: ctx.channel,
         agent_claimed: claimed,
         tampered_fields: tampering,
+        // External (unverified website) purchases: the price is agent-claimed, never verified.
+        ...(external
+          ? { external: true, claimed_price_cents: product.price_cents, source_url: product.external_url ?? null }
+          : {}),
       },
       amount_cents: terms.amount_cents,
       currency: terms.currency,
@@ -480,6 +489,7 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
   let decision: AuthorizationDecision;
   let guard: GuardrailResult;
   let risk: RiskSignals | null = null;
+  let guardPolicy: GuardrailPolicyRow | null = null;
   try {
     await setStatus(ctx, intentId, "evaluating");
     await appendAuditEvent(ctx.db, {
@@ -491,7 +501,6 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
     });
     const spent = await dailySpend(ctx, intentId);
     decision = evaluateAction({ delegation, intent: intentPayload, dailySpendCents: spent, now: (ctx.now ?? (() => new Date()))() });
-    let guardPolicy: GuardrailPolicyRow | null = null;
     if (delegation) {
       const { data } = await ctx.db.from("delegations").select("*").eq("id", delegation.id).maybeSingle();
       guardPolicy = (data as GuardrailPolicyRow | null) ?? null;
@@ -512,7 +521,10 @@ export async function proposePurchase(ctx: DomainContext, rawInput: unknown): Pr
     return { status: "denied", intent_id: intentId, violations: [], reasons: [FAIL_CLOSED_MESSAGE], authoritative: terms, message: FAIL_CLOSED_MESSAGE };
   }
 
-  const allViolations: AnyViolation[] = [...decision.violations, ...guard.violations];
+  // Merge step: an external domain the human listed in allowed_domains/trusted_domain_overrides
+  // clears the base MERCHANT_NOT_ALLOWED rule (external merchants are never in allowed_merchants).
+  const baseViolations = reconcileExternalMerchantViolations(product, guardPolicy, decision.violations);
+  const allViolations: AnyViolation[] = [...baseViolations, ...guard.violations];
   const finalDecision: "deny" | "require_approval" | "auto_approve" =
     allViolations.length > 0 ? "deny" : decision.decision === "require_approval" || guard.requireApproval ? "require_approval" : "auto_approve";
   const rulesEvaluated = { ...decision.rules, guardrails: guard.checks, risk_signals: risk };

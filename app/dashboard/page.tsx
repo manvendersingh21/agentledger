@@ -15,6 +15,42 @@ const QUICK_LINKS = [
   { href: "/dashboard/approvals", label: "Approvals", icon: ClipboardCheck },
 ];
 
+const USE_CASES = [
+  {
+    href: "/dashboard/concierge",
+    emoji: "💬",
+    title: "Concierge",
+    description:
+      "Chat to buy anything: a fan for the bedroom, DIY project supplies, recipe-to-cart groceries, or an item from an external website — all policy-checked.",
+  },
+  {
+    href: "/dashboard/groceries",
+    emoji: "🛒",
+    title: "Groceries",
+    description: "Weekly grocery autopilot: a standing list the agent restocks within your budget and category rules.",
+  },
+  {
+    href: "/dashboard/inventory",
+    emoji: "🍽️",
+    title: "Restaurant autopilot",
+    description:
+      "Inventory-driven restocking: when stock hits the reorder point, the agent proposes bulk orders from trusted suppliers.",
+  },
+  {
+    href: "/dashboard/playground",
+    emoji: "🧩",
+    title: "Software API playground",
+    description: "Watch an agent shop for API plans live — including denied, approved, and replay-blocked attempts.",
+  },
+  {
+    href: "/dashboard/registry",
+    emoji: "🏷️",
+    title: "Merchant network",
+    description:
+      "Verify your store, publish a catalog via the merchant feed API, and become purchasable by any MCP agent.",
+  },
+] as const;
+
 export default async function DashboardOverviewPage() {
   const { principal } = await ensureSetup();
   const [metrics, events] = await Promise.all([getMetrics(), getAuditEvents(30)]);
@@ -83,6 +119,33 @@ export default async function DashboardOverviewPage() {
               </Link>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-md border border-line bg-surface p-6 md:p-8">
+        <Eyebrow>Use cases</Eyebrow>
+        <h2 className="mt-3 font-display text-[28px] font-semibold leading-[0.95] tracking-[-0.045em] text-ink sm:text-[36px]">
+          What can your <span className="text-accent">agent</span> do?
+        </h2>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {USE_CASES.map((useCase) => (
+            <Link
+              key={useCase.href + useCase.title}
+              href={useCase.href}
+              className="group flex flex-col rounded-[6px] border border-line bg-canvas p-4 transition-colors hover:border-accent hover:bg-accent-wash"
+            >
+              <span className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <span className="text-xl" aria-hidden>
+                    {useCase.emoji}
+                  </span>
+                  <span className="text-[15px] font-medium text-ink group-hover:text-accent">{useCase.title}</span>
+                </span>
+                <ArrowDownRight className="size-4 text-ink-3 transition-transform group-hover:translate-x-0.5 group-hover:translate-y-0.5 group-hover:text-accent" />
+              </span>
+              <span className="mt-2 text-[13px] leading-snug text-ink-2">{useCase.description}</span>
+            </Link>
+          ))}
         </div>
       </section>
 

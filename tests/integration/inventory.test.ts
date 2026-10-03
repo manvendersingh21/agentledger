@@ -63,7 +63,13 @@ interface RiskSeedProductRow {
   price_cents: number;
   currency: string;
   recurring: boolean;
-  merchants: { name: string; domain: string | null };
+  merchants: {
+    name: string;
+    domain: string | null;
+    trust_score: number | string | null;
+    trust_score_source: string | null;
+    verified: boolean | null;
+  };
 }
 
 /**
@@ -75,12 +81,16 @@ interface RiskSeedProductRow {
 async function seedCleanRiskSignals(principalId: string, productId: string): Promise<void> {
   const { data, error } = await db
     .from("products")
-    .select("id, name, description, metadata, price_cents, currency, recurring, merchants!inner(name, domain)")
+    .select(
+      "id, name, description, metadata, price_cents, currency, recurring, merchants!inner(name, domain, trust_score, trust_score_source, verified)",
+    )
     .eq("id", productId)
     .single();
   if (error || !data) throw error ?? new Error("risk seed product missing");
   const product = data as unknown as RiskSeedProductRow;
   const rpm = product.metadata?.requests_per_month;
+  // Mirror resolveMerchantTrust: fixture merchants keep their labelled score, so the hash matches runtime.
+  const trustSource = product.merchants.trust_score_source;
   const input: AssessListingInput = {
     productName: product.name,
     merchantName: product.merchants.name,
@@ -91,6 +101,12 @@ async function seedCleanRiskSignals(principalId: string, productId: string): Pro
     currency: product.currency,
     recurring: product.recurring,
     requestsPerMonth: typeof rpm === "number" ? rpm : null,
+    merchantTrustScore:
+      product.merchants.trust_score === null || product.merchants.trust_score === undefined
+        ? null
+        : Number(product.merchants.trust_score),
+    merchantTrustSource: trustSource === "scamadvisor" || trustSource === "fixture" ? trustSource : "unavailable",
+    merchantVerified: product.merchants.verified === true,
   };
   const { error: insertError } = await db.from("risk_assessments").insert({
     principal_id: principalId,
@@ -101,7 +117,7 @@ async function seedCleanRiskSignals(principalId: string, productId: string): Pro
     crypto_exfiltration: 0.01,
     price_anomaly: 0.02,
     content_hash: await contentHash(input),
-    raw: { fixture: "inventory integration test — clean signals" },
+    raw: { fixture: "inventory integration test — clean signals", merchant_risk: 0.01 },
   });
   if (insertError) throw new Error(insertError.message);
 }

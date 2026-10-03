@@ -24,6 +24,7 @@ const PILL =
 interface ConnectClientProps {
   userId: string;
   appUrl: string;
+  supabaseUrl: string;
   hostedMcpUrl: string;
   localMcpUrl: string;
   initialEvents: AuditEventRow[];
@@ -101,6 +102,7 @@ function IntegrationCard({
 export function ConnectClient({
   userId,
   appUrl,
+  supabaseUrl,
   hostedMcpUrl,
   localMcpUrl,
   initialEvents,
@@ -141,6 +143,9 @@ export function ConnectClient({
 
   const claudeCodeCmd = `claude mcp add --transport http agentledger ${hostedMcpUrl}`;
   const claudeCodeLocalCmd = `claude mcp add --transport http agentledger ${localMcpUrl}`;
+  const gptOpenApiUrl = `${appUrl}/api/gpt/openapi.json`;
+  const oauthAuthorizationUrl = `${supabaseUrl}/auth/v1/oauth/authorize`;
+  const oauthTokenUrl = `${supabaseUrl}/auth/v1/oauth/token`;
 
   const cursorMcpJson = {
     mcpServers: {
@@ -228,6 +233,77 @@ export function ConnectClient({
             copyLabel="Copy JSON"
           >
             <CodeBlock value={vscodeMcpJson} title=".vscode/mcp.json" />
+          </IntegrationCard>
+        </div>
+      </section>
+
+      <section className="space-y-6">
+        <div className="space-y-2">
+          <Eyebrow>ChatGPT</Eyebrow>
+          <h2 className="font-display text-3xl font-semibold leading-[0.95] tracking-[-0.045em] text-ink sm:text-4xl">
+            Apps SDK <span className="text-accent">and</span> GPT Actions
+          </h2>
+          <p className="max-w-3xl text-[15px] text-ink-2">
+            Use the MCP connector for the full AgentLedger experience, including the policy decision
+            card. Custom GPT Actions are available as a JSON API fallback and run through the same
+            policy pipeline.
+          </p>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <IntegrationCard
+            title="ChatGPT app / custom connector"
+            description="Connect the hosted MCP endpoint from ChatGPT Developer mode, then authorize AgentLedger with Supabase OAuth."
+            copyText={hostedMcpUrl}
+            copyLabel="Copy connector URL"
+          >
+            <ol className="list-decimal space-y-2 pl-5 text-[14px] leading-relaxed text-ink-2">
+              <li>In ChatGPT settings, enable Developer mode.</li>
+              <li>Open Apps / Connectors and choose the option to add a custom connector.</li>
+              <li>
+                Paste <code className="break-all font-mono text-[12px] text-ink">{hostedMcpUrl}</code>.
+              </li>
+              <li>Complete the Supabase OAuth sign-in and consent flow.</li>
+              <li>Start a new chat, enable AgentLedger, and ask it to search or propose a purchase.</li>
+            </ol>
+            <p className="mt-4 rounded-[4px] bg-accent-wash px-3 py-2 text-[12px] leading-relaxed text-ink-2">
+              Developer mode and custom MCP connectors require an eligible ChatGPT plan and may be
+              controlled by your workspace administrator. If the add-connector option is missing,
+              check your plan and workspace settings.
+            </p>
+          </IntegrationCard>
+
+          <IntegrationCard
+            title="Custom GPT Actions fallback"
+            description="Import the OpenAPI 3.1 schema into a Custom GPT. Actions use Supabase OAuth Bearer tokens and never bypass policy."
+            copyText={gptOpenApiUrl}
+            copyLabel="Copy schema URL"
+          >
+            <ol className="list-decimal space-y-2 pl-5 text-[14px] leading-relaxed text-ink-2">
+              <li>Open the GPT editor, then Configure → Actions → Create new action.</li>
+              <li>
+                Import the schema from{" "}
+                <code className="break-all font-mono text-[12px] text-ink">{gptOpenApiUrl}</code>.
+              </li>
+              <li>
+                Choose OAuth authentication and enter a Supabase OAuth client ID and secret.
+              </li>
+              <li>
+                Use the authorization and token URLs below, then add ChatGPT&apos;s displayed callback
+                URL to that Supabase OAuth client.
+              </li>
+              <li>Save and test searchProducts before testing proposePurchase.</li>
+            </ol>
+            <div className="mt-4 space-y-2 rounded-[4px] border border-line bg-[#F7F7F7] p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3">
+                Authorization URL
+              </p>
+              <p className="break-all font-mono text-[11px] text-ink">{oauthAuthorizationUrl}</p>
+              <p className="pt-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3">
+                Token URL
+              </p>
+              <p className="break-all font-mono text-[11px] text-ink">{oauthTokenUrl}</p>
+            </div>
           </IntegrationCard>
         </div>
       </section>

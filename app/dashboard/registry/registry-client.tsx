@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { Globe, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Globe, KeyRound, Loader2, Package, RefreshCw } from "lucide-react";
 import type { MerchantRegistration, RegistrationStatus, VerificationMethod } from "@/lib/registry/verify";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowButton } from "@/components/brand/arrow-button";
 import { Eyebrow } from "@/components/brand/eyebrow";
-import { cn, formatDateTime } from "@/lib/utils";
+import { cn, formatCents, formatDateTime } from "@/lib/utils";
 
 const FIXTURE_SLUGS = new Set(["acme-api", "vectorbase"]);
 
@@ -39,6 +39,301 @@ function wellKnownInstructions(token: string) {
 
 interface RegistryClientProps {
   initialRegistrations: MerchantRegistration[];
+}
+
+interface MerchantKeySummary {
+  id: string;
+  key_prefix: string;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+interface PublishedProduct {
+  id: string;
+  sku: string;
+  name: string;
+  price_cents: number;
+  currency: string;
+  recurring: boolean;
+  category: string;
+  active: boolean;
+  created_at: string;
+}
+
+interface CatalogResponse {
+  keys: MerchantKeySummary[];
+  products: PublishedProduct[];
+  message?: string;
+}
+
+async function requestCatalog(registrationId: string): Promise<CatalogResponse> {
+  const response = await fetch(`/api/registry/${registrationId}/keys`);
+  const json = (await response.json()) as CatalogResponse;
+  if (!response.ok) {
+    throw new Error(json.message ?? "Could not load the published catalog.");
+  }
+  return json;
+}
+
+const FEED_EXAMPLE = `curl https://agentledger-cyan.vercel.app/api/merchant/v1/products \\
+  -X POST \\
+  -H "Authorization: Bearer $AGENTLEDGER_MERCHANT_KEY" \\
+  -H "Content-Type: application/json" \\
+  --data '{
+    "products": [{
+      "sku": "starter-plan",
+      "name": "Starter plan",
+      "description": "One month of service.",
+      "price_cents": 1900,
+      "currency": "usd",
+      "recurring": false,
+      "category": "software",
+      "attributes": {},
+      "market_price_cents": 2000
+    }]
+  }'`;
+
+function CatalogPanel({ registrationId }: { registrationId: string }) {
+  const [catalog, setCatalog] = useState<CatalogResponse>({ keys: [], products: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  const loadCatalog = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setCatalog(await requestCatalog(registrationId));
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not load the published catalog.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [registrationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void requestCatalog(registrationId)
+      .then((response) => {
+        if (!cancelled) setCatalog(response);
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load the published catalog.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [registrationId]);
+
+  async function generateKey() {
+    setGenerating(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/registry/${registrationId}/keys`, {
+        method: "POST",
+      });
+      const json = (await response.json()) as {
+        api_key?: string;
+        key?: MerchantKeySummary;
+        message?: string;
+      };
+      if (!response.ok || !json.api_key || !json.key) {
+        setError(json.message ?? "Could not generate an API key.");
+        return;
+      }
+      setGeneratedKey(json.api_key);
+      setCatalog((current) => ({ ...current, keys: [json.key!, ...current.keys] }));
+    } catch {
+      setError("Could not generate an API key.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function revokeKey(keyId: string) {
+    setRevokingId(keyId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/registry/${registrationId}/keys`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key_id: keyId }),
+      });
+      const json = (await response.json()) as {
+        key?: MerchantKeySummary;
+        message?: string;
+      };
+      if (!response.ok || !json.key) {
+        setError(json.message ?? "Could not revoke the API key.");
+        return;
+      }
+      setCatalog((current) => ({
+        ...current,
+        keys: current.keys.map((key) => (key.id === keyId ? json.key! : key)),
+      }));
+    } catch {
+      setError("Could not revoke the API key.");
+    } finally {
+      setRevokingId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-6 rounded-[6px] border border-line bg-canvas p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-1">
+          <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">
+            <Package className="size-3.5" />
+            Publish catalog
+          </p>
+          <p className="max-w-xl text-sm leading-relaxed text-ink-2">
+            Send authoritative product terms with a merchant API key. Descriptions are stored as
+            untrusted merchant content and remain subject to AgentLedger policy.
+          </p>
+        </div>
+        <ArrowButton
+          type="button"
+          size="md"
+          disabled={generating}
+          onClick={generateKey}
+          icon={<KeyRound className="size-4" />}
+        >
+          {generating ? <Loader2 className="size-4 animate-spin" /> : null}
+          Generate API key
+        </ArrowButton>
+      </div>
+
+      {generatedKey ? (
+        <div className="space-y-2 rounded-[6px] border border-waiting/30 bg-waiting-bg p-4">
+          <p className="text-sm font-medium text-waiting">
+            Copy this key now. It will not be shown again.
+          </p>
+          <CodeBlock title="New merchant API key" value={generatedKey} />
+        </div>
+      ) : null}
+
+      {error ? (
+        <p className="rounded-[4px] bg-blocked-bg px-3 py-2 text-sm text-blocked">{error}</p>
+      ) : null}
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+              API keys
+            </h4>
+            <span className="font-mono text-xs text-ink-3">
+              {catalog.keys.filter((key) => !key.revoked_at).length} active
+            </span>
+          </div>
+          {loading ? (
+            <p className="flex items-center gap-2 text-sm text-ink-3">
+              <Loader2 className="size-4 animate-spin" />
+              Loading keys
+            </p>
+          ) : catalog.keys.length === 0 ? (
+            <p className="text-sm text-ink-3">No API keys yet.</p>
+          ) : (
+            <ul className="divide-y divide-line overflow-hidden rounded-[4px] border border-line bg-surface">
+              {catalog.keys.map((key) => (
+                <li key={key.id} className="flex items-center justify-between gap-3 px-3 py-3">
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs text-ink">{key.key_prefix}••••</p>
+                    <p className="mt-1 text-[11px] text-ink-3">
+                      Created {formatDateTime(key.created_at)}
+                    </p>
+                  </div>
+                  {key.revoked_at ? (
+                    <span className={cn(PILL, "bg-blocked-bg text-blocked")}>revoked</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-ink-2 underline decoration-line underline-offset-4 hover:text-blocked"
+                      disabled={revokingId === key.id}
+                      onClick={() => revokeKey(key.id)}
+                    >
+                      {revokingId === key.id ? "Revoking…" : "Revoke"}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <CodeBlock title="Publish with curl" value={FEED_EXAMPLE} />
+      </div>
+
+      <div className="space-y-3 border-t border-line pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+            Published products
+          </h4>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:text-accent-hover"
+            disabled={loading}
+            onClick={() => void loadCatalog()}
+          >
+            <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+            Refresh
+          </button>
+        </div>
+        {!loading && catalog.products.length === 0 ? (
+          <p className="rounded-[4px] border border-dashed border-line bg-surface px-4 py-6 text-center text-sm text-ink-3">
+            No merchant-feed products published yet.
+          </p>
+        ) : (
+          <ul className="divide-y divide-line overflow-hidden rounded-[4px] border border-line bg-surface">
+            {catalog.products.map((product) => (
+              <li
+                key={product.id}
+                className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-ink">{product.name}</p>
+                  <p className="mt-1 truncate font-mono text-[11px] text-ink-3">
+                    {product.sku} · {product.category}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 sm:justify-end">
+                  <span className="font-mono text-sm tabular-nums text-ink">
+                    {formatCents(product.price_cents, product.currency)}
+                    {product.recurring ? "/period" : ""}
+                  </span>
+                  <span
+                    className={cn(
+                      PILL,
+                      product.active
+                        ? "bg-executed-bg text-executed"
+                        : "bg-[#F2F2F2] text-ink-2",
+                    )}
+                  >
+                    {product.active ? "active" : "inactive"}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function RegistryClient({ initialRegistrations }: RegistryClientProps) {
@@ -278,6 +573,9 @@ export function RegistryClient({ initialRegistrations }: RegistryClientProps) {
                     <p className="text-sm text-ink-2">
                       Verified <span className="font-mono">{formatDateTime(reg.verified_at)}</span>
                     </p>
+                  ) : null}
+                  {reg.status === "verified" ? (
+                    <CatalogPanel registrationId={reg.id} />
                   ) : null}
                 </li>
               );

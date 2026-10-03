@@ -31,9 +31,19 @@ export async function POST(request: Request) {
   const { ctx } = session;
 
   const encoder = new TextEncoder();
+  // The client aborts superseded turns, so the stream is routinely cancelled mid-write;
+  // enqueue/close on a cancelled controller throws and must not crash the handler.
+  let closed = false;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (a: ConciergeActivity) => controller.enqueue(encoder.encode(`${JSON.stringify(a)}\n`));
+      const send = (a: ConciergeActivity) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(a)}\n`));
+        } catch {
+          closed = true; // client disconnected; stop writing
+        }
+      };
       try {
         await appendAuditEvent(ctx.db, {
           principalId: ctx.principalId,
@@ -60,8 +70,18 @@ export async function POST(request: Request) {
           message: error instanceof Error ? error.message.slice(0, 300) : "Concierge request failed",
         });
       } finally {
-        controller.close();
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            // already closed/errored
+          }
+        }
       }
+    },
+    cancel() {
+      closed = true;
     },
   });
 

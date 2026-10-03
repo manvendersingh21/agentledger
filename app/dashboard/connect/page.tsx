@@ -35,7 +35,7 @@ export default async function ConnectPage() {
           Connect <span className="text-accent">any</span> agent.
         </h1>
         <p className="max-w-2xl text-base text-ink-2">
-          Point Claude Code, Cursor, VS Code, or Claude Desktop at the live AgentLedger MCP server.
+          Point ChatGPT, Claude Code, Cursor, VS Code, or Claude Desktop at the live AgentLedger MCP server.
           OAuth signs the agent in as you; every tool call is bounded by your delegation policy.
         </p>
       </header>
@@ -43,6 +43,7 @@ export default async function ConnectPage() {
       <ConnectClient
         userId={principal.id}
         appUrl={appUrl}
+        supabaseUrl={supabaseUrl}
         hostedMcpUrl={hostedMcpUrl}
         localMcpUrl={localMcpUrl}
         initialEvents={events}

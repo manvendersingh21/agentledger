@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDomainContext } from "@/lib/domain/server-context";
+import { applyReceiptToInventory } from "@/lib/domain/inventory";
 import { resolveApproval } from "@/lib/domain/pipeline";
 import { errorResponse, unauthorized } from "@/lib/domain/http";
 
@@ -14,6 +15,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!session) return unauthorized();
     const body = Body.parse(await request.json());
     const result = await resolveApproval(session.ctx, id, body.decision, body.reason);
+    // An approved autopilot restock that executed must land in inventory immediately;
+    // applyReceiptToInventory is an idempotent no-op for non-autopilot intents.
+    if (result.execution?.status === "executed") {
+      await applyReceiptToInventory(session.ctx, result.intent_id);
+    }
     return NextResponse.json(result);
   } catch (error) {
     return errorResponse(error, { approval_id: id });

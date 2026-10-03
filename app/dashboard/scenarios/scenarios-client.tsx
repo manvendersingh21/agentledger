@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { ArrowButton } from "@/components/brand/arrow-button";
 import { cn } from "@/lib/utils";
@@ -61,8 +61,13 @@ export function ScenariosClient({ activeScenario }: { activeScenario: string }) 
   const router = useRouter();
   const [loading, setLoading] = useState<ScenarioKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Synchronous guard: `loading` state is stale within the same tick, so a rapid
+  // double-click would fire two apply requests before the buttons re-render disabled.
+  const loadingRef = useRef(false);
 
   async function applyScenario(key: ScenarioKey) {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(key);
     setError(null);
     try {
@@ -71,7 +76,7 @@ export function ScenariosClient({ activeScenario }: { activeScenario: string }) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scenario: key }),
       });
-      const body = (await res.json()) as { message?: string; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
       if (!res.ok) {
         setError(body.message ?? body.error ?? "Could not apply scenario.");
         return;
@@ -80,6 +85,7 @@ export function ScenariosClient({ activeScenario }: { activeScenario: string }) 
     } catch {
       setError("Network error. Try again.");
     } finally {
+      loadingRef.current = false;
       setLoading(null);
     }
   }

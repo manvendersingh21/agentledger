@@ -2,8 +2,11 @@
 // Runtime-agnostic. A missing/failed signal never auto-approves (see lib/policy/guardrails.ts).
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { canonicalJson, sha256Hex } from "../crypto/audit-chain.ts";
-import { evaluateGuardrails, type GuardrailResult } from "../policy/guardrails.ts";
+import { evaluateGuardrails, externalDomainAllowed, type GuardrailResult } from "../policy/guardrails.ts";
+import type { ViolationCode } from "../policy/types.ts";
 import { assessListing, contentHash, type AssessListingInput, type JevAssessment } from "../risk/jev.ts";
+import type { TrustScore } from "../risk/scamadvisor.ts";
+import { refreshMerchantTrust } from "../risk/trust-refresh.ts";
 import { appendAuditEvent } from "./audit.ts";
 import type { ProductRow } from "./products.ts";
 
@@ -11,7 +14,49 @@ import type { ProductRow } from "./products.ts";
 export type ScenarioProductRow = ProductRow & {
   category?: string;
   market_price_cents?: number | null;
+  /** Merchant network (migration `20261003060000_merchant_network.sql`): 'catalog' | 'merchant_feed' | 'external'. */
+  source?: string | null;
+  external_url?: string | null;
 };
+
+/**
+ * External (unverified website) purchase detection. Primary signal is `products.source = 'external'`.
+ * When the caller's SELECT does not include `source`, we fail toward "external": a product whose
+ * merchant is neither trusted, nor registry-verified, nor a seeded demo fixture can only have come
+ * from the external purchase flow — and unverified purchases must always go to the human anyway.
+ */
+export function isExternalProduct(product: ProductRow): boolean {
+  const row = product as ScenarioProductRow;
+  if (typeof row.source === "string" && row.source.length > 0) {
+    return row.source === "external";
+  }
+  const merchant = product.merchants;
+  return (
+    merchant.trusted !== true &&
+    merchant.verified !== true &&
+    (merchant.trust_score_source ?? "unavailable") !== "fixture"
+  );
+}
+
+/**
+ * Merchant allowlist rule for externals: an external domain passes the base MERCHANT_NOT_ALLOWED
+ * rule only when the human listed it in allowed_domains or trusted_domain_overrides. The pipeline
+ * must pass the merged base-policy violations through this before deciding deny vs approval.
+ * Deterministic; never removes any other violation.
+ */
+export function reconcileExternalMerchantViolations(
+  product: ProductRow,
+  policy: GuardrailPolicyRow | null,
+  baseViolations: ViolationCode[],
+): ViolationCode[] {
+  if (!isExternalProduct(product)) return baseViolations;
+  const allowed = externalDomainAllowed(product.merchants.domain ?? null, {
+    allowedDomains: policy?.allowed_domains ?? [],
+    trustedDomainOverrides: policy?.trusted_domain_overrides ?? [],
+  });
+  if (!allowed) return baseViolations;
+  return baseViolations.filter((v) => v !== "MERCHANT_NOT_ALLOWED");
+}
 
 export interface IntentHashInput {
   principalId: string;
@@ -45,12 +90,40 @@ export interface RiskSignals {
   promptInjection: number;
   cryptoExfiltration: number;
   priceAnomaly: number;
+  /** Jev merchantRisk: P(merchant unsafe to transact with). Null when a cached row predates the question. */
+  merchantRisk: number | null;
+  /** Merchant trust at assessment time (input to Jev): live ScamAdviser refresh or labelled fixture. */
+  merchantTrustScore: number | null;
+  merchantTrustSource: string;
+  merchantTrustCheckedAt: string | null;
+  merchantVerified: boolean;
   provider: string;
   model: string;
   cached: boolean;
 }
 
-function listingInput(product: ProductRow): AssessListingInput {
+/**
+ * Fresh merchant trust for the risk chain: live ScamAdviser page check for real domains (24h cache);
+ * fixture merchants keep their labelled fixture score. Falls back to the stored merchant row on any
+ * refresh failure — the deterministic trust rule still fails closed on a null score.
+ */
+async function resolveMerchantTrust(db: SupabaseClient, product: ProductRow): Promise<TrustScore> {
+  try {
+    return await refreshMerchantTrust(db, { merchantId: product.merchant_id });
+  } catch {
+    const merchant = product.merchants;
+    const stored = merchant.trust_score === null || merchant.trust_score === undefined ? null : Number(merchant.trust_score);
+    const source = merchant.trust_score_source;
+    return {
+      domain: merchant.domain?.trim().toLowerCase() ?? "",
+      score: stored !== null && Number.isFinite(stored) ? stored : null,
+      source: source === "scamadvisor" || source === "fixture" ? source : "unavailable",
+      checkedAt: new Date().toISOString(),
+    };
+  }
+}
+
+function listingInput(product: ProductRow, trust: TrustScore): AssessListingInput {
   const rpm = product.metadata?.requests_per_month;
   return {
     productName: product.name,
@@ -62,10 +135,29 @@ function listingInput(product: ProductRow): AssessListingInput {
     currency: product.currency,
     recurring: product.recurring,
     requestsPerMonth: typeof rpm === "number" ? rpm : null,
+    merchantTrustScore: trust.score,
+    merchantTrustSource: trust.source,
+    merchantVerified: product.merchants.verified === true,
   };
 }
 
-/** Jev assessment for a listing, cached per (product, content hash). Returns null when unavailable. */
+/** merchant_* chain fields persisted in risk_assessments.raw (no schema change needed). */
+function chainRawFields(trust: TrustScore, verified: boolean, merchantRisk: number | null): Record<string, unknown> {
+  return {
+    merchant_risk: merchantRisk,
+    merchant_trust_score: trust.score,
+    merchant_trust_source: trust.source,
+    merchant_trust_checked_at: trust.checkedAt,
+    merchant_verified: verified,
+  };
+}
+
+/**
+ * Jev assessment for a listing, cached per (product, content hash). Returns null when unavailable.
+ * The merchant trust score is refreshed first (live ScamAdviser for real domains, 24h cache; fixture
+ * merchants keep their labelled score) and fed INTO Jev — the hash covers it, so a changed trust
+ * score re-assesses.
+ */
 export async function assessProductRisk(
   db: SupabaseClient,
   principalId: string,
@@ -73,7 +165,9 @@ export async function assessProductRisk(
   jevApiKey: string | null | undefined,
   intentId: string | null,
 ): Promise<RiskSignals | null> {
-  const input = listingInput(product);
+  const trust = await resolveMerchantTrust(db, product);
+  const verified = product.merchants.verified === true;
+  const input = listingInput(product, trust);
   let hash: string;
   try {
     hash = await contentHash(input);
@@ -82,16 +176,18 @@ export async function assessProductRisk(
   }
   const { data: cached } = await db
     .from("risk_assessments")
-    .select("prompt_injection, crypto_exfiltration, price_anomaly, provider, model")
+    .select("prompt_injection, crypto_exfiltration, price_anomaly, provider, model, raw")
     .eq("product_id", product.id)
     .eq("content_hash", hash)
     .order("created_at", { ascending: false })
     .limit(1);
   const hit = cached?.[0] as
-    | { prompt_injection: number; crypto_exfiltration: number; price_anomaly: number; provider: string; model: string }
+    | { prompt_injection: number; crypto_exfiltration: number; price_anomaly: number; provider: string; model: string; raw: unknown }
     | undefined;
 
   if (hit) {
+    const hitRaw = typeof hit.raw === "object" && hit.raw !== null ? (hit.raw as Record<string, unknown>) : {};
+    const cachedMerchantRisk = typeof hitRaw.merchant_risk === "number" ? hitRaw.merchant_risk : null;
     if (intentId) {
       await db.from("risk_assessments").insert({
         principal_id: principalId,
@@ -103,13 +199,18 @@ export async function assessProductRisk(
         crypto_exfiltration: hit.crypto_exfiltration,
         price_anomaly: hit.price_anomaly,
         content_hash: hash,
-        raw: { cached: true },
+        raw: { cached: true, ...chainRawFields(trust, verified, cachedMerchantRisk) },
       });
     }
     return {
       promptInjection: Number(hit.prompt_injection),
       cryptoExfiltration: Number(hit.crypto_exfiltration),
       priceAnomaly: Number(hit.price_anomaly),
+      merchantRisk: cachedMerchantRisk,
+      merchantTrustScore: trust.score,
+      merchantTrustSource: trust.source,
+      merchantTrustCheckedAt: trust.checkedAt,
+      merchantVerified: verified,
       provider: hit.provider,
       model: hit.model,
       cached: true,
@@ -124,6 +225,7 @@ export async function assessProductRisk(
     console.error(JSON.stringify({ scope: "agentledger", message: "jev assessment failed", product_id: product.id, error: String(error) }));
     return null;
   }
+  const assessmentRaw = typeof assessment.raw === "object" && assessment.raw !== null ? (assessment.raw as Record<string, unknown>) : { response: assessment.raw };
   await db.from("risk_assessments").insert({
     principal_id: principalId,
     intent_id: intentId,
@@ -134,12 +236,17 @@ export async function assessProductRisk(
     crypto_exfiltration: assessment.cryptoExfiltration,
     price_anomaly: assessment.priceAnomaly,
     content_hash: hash,
-    raw: assessment.raw as object,
+    raw: { ...assessmentRaw, ...chainRawFields(trust, verified, assessment.merchantRisk) },
   });
   return {
     promptInjection: assessment.promptInjection,
     cryptoExfiltration: assessment.cryptoExfiltration,
     priceAnomaly: assessment.priceAnomaly,
+    merchantRisk: assessment.merchantRisk,
+    merchantTrustScore: trust.score,
+    merchantTrustSource: trust.source,
+    merchantTrustCheckedAt: trust.checkedAt,
+    merchantVerified: verified,
     provider: "jev",
     model: assessment.model,
     cached: false,
@@ -167,6 +274,13 @@ export async function getAgentStatus(db: SupabaseClient, agentId: string): Promi
   return s === "active" || s === "suspended" ? s : "disabled";
 }
 
+function storedTrustScore(product: ProductRow): number | null {
+  const stored = product.merchants.trust_score;
+  if (stored === null || stored === undefined) return null;
+  const n = Number(stored);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function runGuardrails(
   agentStatus: "active" | "disabled" | "suspended",
   product: ProductRow,
@@ -179,6 +293,27 @@ export function runGuardrails(
   const verified = product.merchants.verified === true;
   result.checks.merchant_verified = { passed: verified || !policy?.require_verified_merchant, required: policy?.require_verified_merchant === true, verified };
   if (policy?.require_verified_merchant && !verified) result.violations.push("MERCHANT_NOT_VERIFIED");
+  // Full real-time risk chain for the audit trail and UI:
+  // "ScamAdviser <score> → Jev merchantRisk <p> → Policy <decision>".
+  const chainDecision = result.violations.length > 0 ? "deny" : result.requireApproval ? "require_approval" : "pass";
+  result.checks.risk_chain = {
+    passed: result.violations.length === 0,
+    scamadviser: {
+      score: risk ? risk.merchantTrustScore : storedTrustScore(product),
+      source: risk ? risk.merchantTrustSource : product.merchants.trust_score_source ?? "unavailable",
+      checkedAt: risk ? risk.merchantTrustCheckedAt : null,
+    },
+    jev: risk
+      ? {
+          model: risk.model,
+          promptInjection: risk.promptInjection,
+          cryptoExfiltration: risk.cryptoExfiltration,
+          priceAnomaly: risk.priceAnomaly,
+          merchantRisk: risk.merchantRisk,
+        }
+      : null,
+    decision: chainDecision,
+  };
   return result;
 }
 
@@ -210,13 +345,16 @@ function evaluateGuardrailsFor(
     merchant: {
       slug: product.merchants.slug,
       domain: product.merchants.domain ?? null,
-      trustScore: product.merchants.trust_score === null || product.merchants.trust_score === undefined ? null : Number(product.merchants.trust_score),
-      trustSource: product.merchants.trust_score_source ?? "unavailable",
+      // Prefer the trust refreshed at assessment time (live ScamAdviser / fixture) over the row
+      // loaded with the product, which may be stale.
+      trustScore: risk ? risk.merchantTrustScore : storedTrustScore(product),
+      trustSource: risk ? risk.merchantTrustSource : product.merchants.trust_score_source ?? "unavailable",
     },
     purchase: {
       category: productCategory(product),
       unitPriceCents: product.price_cents,
       quantity: purchase.quantity,
+      external: isExternalProduct(product),
     },
     productMarketPriceCents: productMarketPriceCents(product),
     policy: {
@@ -231,7 +369,14 @@ function evaluateGuardrailsFor(
       allowedCategories: policy?.allowed_categories ?? [],
       marketPriceTolerance: num(policy?.market_price_tolerance, 1.5),
     },
-    risk: risk ? { promptInjection: risk.promptInjection, cryptoExfiltration: risk.cryptoExfiltration, priceAnomaly: risk.priceAnomaly } : null,
+    risk: risk
+      ? {
+          promptInjection: risk.promptInjection,
+          cryptoExfiltration: risk.cryptoExfiltration,
+          priceAnomaly: risk.priceAnomaly,
+          merchantRisk: risk.merchantRisk,
+        }
+      : null,
   });
 }
 

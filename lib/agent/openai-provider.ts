@@ -142,6 +142,28 @@ export class OpenAIAgentProvider implements AgentProvider {
             input.tools.propose_purchase(args),
           ),
         }),
+        check_merchant: tool({
+          description:
+            "Check whether a real-world website is a verified AgentLedger merchant and get its live trust score plus a policy preview. Read-only.",
+          inputSchema: z.object({ domain: z.string().describe('Website domain, e.g. "shop.example.com"') }),
+          execute: wrap("check_merchant", (args: { domain: string }) => input.tools.check_merchant(args)),
+        }),
+        propose_external_purchase: tool({
+          description:
+            "Propose buying from an EXTERNAL website not in the catalog, by https product URL. The price is agent-claimed and UNVERIFIED; AgentLedger never auto-approves external purchases — a human must approve. Only for a real website the user explicitly named.",
+          inputSchema: z.object({
+            url: z.string().describe("Full https product page URL"),
+            item_name: z.string(),
+            claimed_price_cents: z.number().int().min(1).describe("Price in USD cents as seen on the website"),
+            quantity: z.number().int().min(1).max(50).optional(),
+            reason: z.string().optional(),
+          }),
+          execute: wrap(
+            "propose_external_purchase",
+            (args: { url: string; item_name: string; claimed_price_cents: number; quantity?: number; reason?: string }) =>
+              input.tools.propose_external_purchase(args),
+          ),
+        }),
         get_action_status: tool({
           description: "Get the current status of a proposed action.",
           inputSchema: z.object({ intent_id: z.string() }),

@@ -9,12 +9,34 @@ export type GuardrailViolation =
   | "WEBSITE_NOT_ALLOWED"
   | "CATEGORY_BLOCKED"
   | "CATEGORY_NOT_ALLOWED"
-  | "PRICE_ABOVE_MARKET";
+  | "PRICE_ABOVE_MARKET"
+  | "MERCHANT_RISK_HIGH";
+
+/**
+ * Deny threshold for Jev's merchantRisk signal — P(merchant is unsafe to transact with), scored
+ * from the live ScamAdviser trust score, verification status and listing content.
+ * Policy constant for now; configurable per delegation later.
+ */
+export const MERCHANT_RISK_DENY_THRESHOLD = 0.9;
+
+/**
+ * NOT a violation: external (unverified website) purchases can pass every deny rule,
+ * but they are never auto-approved — this reason deterministically forces require_approval.
+ */
+export const EXTERNAL_REQUIRES_HUMAN = "EXTERNAL_REQUIRES_HUMAN";
+
+/** Label shown with external purchases: the price came from the agent, not a verified catalog. */
+export const UNVERIFIED_PRICE_LABEL = "UNVERIFIED PRICE — agent-claimed";
+
+export type RequireApprovalReason =
+  | typeof EXTERNAL_REQUIRES_HUMAN
+  | "RISK_SIGNALS_UNAVAILABLE"
+  | "PRICE_ANOMALY_REVIEW";
 
 export interface GuardrailInput {
   agentStatus: "active" | "disabled" | "suspended";
   merchant: { slug: string; domain: string | null; trustScore: number | null; trustSource: string };
-  purchase: { category: string; unitPriceCents: number; quantity: number };
+  purchase: { category: string; unitPriceCents: number; quantity: number; external: boolean };
   productMarketPriceCents: number | null;
   policy: {
     minTrustScore: number;
@@ -28,12 +50,20 @@ export interface GuardrailInput {
     allowedCategories: string[];
     marketPriceTolerance: number;
   };
-  risk: { promptInjection: number; cryptoExfiltration: number; priceAnomaly: number } | null;
+  risk: {
+    promptInjection: number;
+    cryptoExfiltration: number;
+    priceAnomaly: number;
+    /** Jev merchantRisk signal; absent/null when the cached assessment predates the question. */
+    merchantRisk?: number | null;
+  } | null;
 }
 
 export interface GuardrailResult {
   violations: GuardrailViolation[];
   requireApproval: boolean;
+  /** Why approval is forced even without violations (e.g. EXTERNAL_REQUIRES_HUMAN). Empty when not forced. */
+  requireApprovalReasons: RequireApprovalReason[];
   killSwitch: { trigger: boolean; reason: string | null };
   checks: Record<string, { passed: boolean; [k: string]: unknown }>;
 }
@@ -46,24 +76,44 @@ function domainInOverrides(domain: string | null, overrides: string[]): boolean 
   return overrides.some((entry) => entry.toLowerCase() === normalized);
 }
 
-function hostnameAllowed(domain: string | null, allowedDomains: string[]): boolean {
-  if (allowedDomains.length === 0) {
-    return true;
-  }
+function hostnameInList(domain: string | null, list: string[]): boolean {
   if (domain === null || domain.length === 0) {
     return false;
   }
   const host = domain.trim().toLowerCase();
-  return allowedDomains.some((entry) => {
+  return list.some((entry) => {
     const allowed = entry.trim().toLowerCase();
     if (!allowed) return false;
     return host === allowed || host.endsWith(`.${allowed}`);
   });
 }
 
+function hostnameAllowed(domain: string | null, allowedDomains: string[]): boolean {
+  if (allowedDomains.length === 0) {
+    return true;
+  }
+  return hostnameInList(domain, allowedDomains);
+}
+
+/**
+ * External (unverified website) merchant allowlist rule: an external domain passes only when the
+ * human put it in allowed_domains or trusted_domain_overrides. An empty allowlist denies externals.
+ */
+export function externalDomainAllowed(
+  domain: string | null,
+  policy: { allowedDomains: string[]; trustedDomainOverrides: string[] },
+): boolean {
+  return (
+    domainInOverrides(domain, policy.trustedDomainOverrides) ||
+    hostnameInList(domain, policy.allowedDomains)
+  );
+}
+
 export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
   const violations: GuardrailViolation[] = [];
+  const requireApprovalReasons: RequireApprovalReason[] = [];
   let requireApproval = false;
+  const external = input.purchase.external;
 
   const agentActive = input.agentStatus === "active";
   const checks: GuardrailResult["checks"] = {
@@ -73,7 +123,11 @@ export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
     violations.push("AGENT_SUSPENDED");
   }
 
-  const overridePass = domainInOverrides(input.merchant.domain, input.policy.trustedDomainOverrides);
+  // Trust rule: overrides always satisfy it; for external domains, allowed_domains does too
+  // ("trust ≥ min unless domain in trusted_domain_overrides/allowed_domains").
+  const overridePass =
+    domainInOverrides(input.merchant.domain, input.policy.trustedDomainOverrides) ||
+    (external && hostnameInList(input.merchant.domain, input.policy.allowedDomains));
   let trustPassed = overridePass;
   if (!overridePass) {
     if (input.merchant.trustScore === null) {
@@ -96,15 +150,34 @@ export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
     overrideApplied: overridePass,
   };
 
-  const websiteAllowed = hostnameAllowed(input.merchant.domain, input.policy.allowedDomains);
+  // Website rule: catalog merchants pass when the allowlist is empty (unrestricted); external
+  // domains pass the merchant rule ONLY when listed in allowed_domains or trusted_domain_overrides.
+  const websiteAllowed = external
+    ? externalDomainAllowed(input.merchant.domain, input.policy)
+    : hostnameAllowed(input.merchant.domain, input.policy.allowedDomains);
   checks.allowed_websites = {
     passed: websiteAllowed,
     domain: input.merchant.domain,
     allowedDomains: input.policy.allowedDomains,
-    restricted: input.policy.allowedDomains.length > 0,
+    restricted: external || input.policy.allowedDomains.length > 0,
+    external,
   };
   if (!websiteAllowed) {
     violations.push("WEBSITE_NOT_ALLOWED");
+  }
+
+  // External purchases are never auto-approved: a passing external proposal still goes to the human.
+  // EXTERNAL_REQUIRES_HUMAN is deliberately NOT a violation (it does not deny).
+  checks.external_source = {
+    passed: true,
+    external,
+    requiresHuman: external,
+    reason: external ? EXTERNAL_REQUIRES_HUMAN : null,
+    priceLabel: external ? UNVERIFIED_PRICE_LABEL : null,
+  };
+  if (external) {
+    requireApproval = true;
+    requireApprovalReasons.push(EXTERNAL_REQUIRES_HUMAN);
   }
 
   const category = input.purchase.category;
@@ -151,10 +224,12 @@ export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
 
   if (input.risk === null) {
     requireApproval = true;
+    requireApprovalReasons.push("RISK_SIGNALS_UNAVAILABLE");
     checks.jev_available = { passed: false, reason: "unavailable" };
     checks.prompt_injection = { passed: true, skipped: true };
     checks.crypto_exfiltration = { passed: true, skipped: true };
     checks.price_anomaly = { passed: true, skipped: true };
+    checks.merchant_risk = { passed: true, skipped: true };
   } else {
     checks.jev_available = { passed: true };
 
@@ -193,6 +268,21 @@ export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
     }
     if (priceReview) {
       requireApproval = true;
+      requireApprovalReasons.push("PRICE_ANOMALY_REVIEW");
+    }
+
+    // Merchant risk: Jev's judgment of the merchant itself (trust score + verification + content).
+    // Absent on cached assessments that predate the question — then this rule is skipped, never guessed.
+    const merchantRisk = input.risk.merchantRisk ?? null;
+    const merchantRiskHigh = merchantRisk !== null && merchantRisk >= MERCHANT_RISK_DENY_THRESHOLD;
+    checks.merchant_risk = {
+      passed: !merchantRiskHigh,
+      score: merchantRisk,
+      threshold: MERCHANT_RISK_DENY_THRESHOLD,
+      available: merchantRisk !== null,
+    };
+    if (merchantRiskHigh) {
+      violations.push("MERCHANT_RISK_HIGH");
     }
   }
 
@@ -218,5 +308,5 @@ export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
     reason: killReason,
   };
 
-  return { violations, requireApproval, killSwitch, checks };
+  return { violations, requireApproval, requireApprovalReasons, killSwitch, checks };
 }

@@ -11,10 +11,18 @@ const baseListing: AssessListingInput = {
   currency: "usd",
   recurring: false,
   requestsPerMonth: 100_000,
+  merchantTrustScore: 98,
+  merchantTrustSource: "fixture",
+  merchantVerified: true,
 };
 
 function mockJevResponse(
-  scores: { promptInjection: number; cryptoExfiltration: number; priceAnomaly: number },
+  scores: {
+    promptInjection: number;
+    cryptoExfiltration: number;
+    priceAnomaly: number;
+    merchantRisk: number;
+  },
   model = "jev-latest",
 ) {
   return {
@@ -26,6 +34,7 @@ function mockJevResponse(
         promptInjection: { type: "noul", noul: scores.promptInjection },
         cryptoExfiltration: { type: "noul", noul: scores.cryptoExfiltration },
         priceAnomaly: { type: "noul", noul: scores.priceAnomaly },
+        merchantRisk: { type: "noul", noul: scores.merchantRisk },
       },
       usage: { tokens: 1 },
     }),
@@ -37,9 +46,14 @@ describe("assessListing (mocked fetch)", () => {
     vi.restoreAllMocks();
   });
 
-  it("parses a valid Jev response into probabilities", async () => {
+  it("parses a valid Jev response into probabilities, including merchantRisk", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
-      mockJevResponse({ promptInjection: 0.1, cryptoExfiltration: 0.02, priceAnomaly: 0.15 }),
+      mockJevResponse({
+        promptInjection: 0.1,
+        cryptoExfiltration: 0.02,
+        priceAnomaly: 0.15,
+        merchantRisk: 0.05,
+      }),
     );
 
     const result = await assessListing(baseListing, { apiKey: "test-key", fetchImpl });
@@ -50,6 +64,7 @@ describe("assessListing (mocked fetch)", () => {
       promptInjection: 0.1,
       cryptoExfiltration: 0.02,
       priceAnomaly: 0.15,
+      merchantRisk: 0.05,
     });
     expect(fetchImpl).toHaveBeenCalledOnce();
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
@@ -63,12 +78,34 @@ describe("assessListing (mocked fetch)", () => {
       productName: baseListing.productName,
       merchantName: baseListing.merchantName,
       priceCents: 1500,
+      merchantTrustScore: 98,
+      merchantTrustSource: "fixture",
+      merchantVerified: true,
     });
     expect(Object.keys(body.questions)).toEqual([
       "promptInjection",
       "cryptoExfiltration",
       "priceAnomaly",
+      "merchantRisk",
     ]);
+  });
+
+  it("sends a null trust score to Jev for unscored merchants", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      mockJevResponse({ promptInjection: 0.1, cryptoExfiltration: 0.1, priceAnomaly: 0.1, merchantRisk: 0.6 }),
+    );
+
+    const result = await assessListing(
+      { ...baseListing, merchantTrustScore: null, merchantTrustSource: "unavailable", merchantVerified: false },
+      { apiKey: "test-key", fetchImpl },
+    );
+    expect(result.merchantRisk).toBe(0.6);
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { state: Record<string, unknown> };
+    expect(body.state.merchantTrustScore).toBeNull();
+    expect(body.state.merchantTrustSource).toBe("unavailable");
+    expect(body.state.merchantVerified).toBe(false);
   });
 
   it("throws on request timeout", async () => {
@@ -108,6 +145,25 @@ describe("assessListing (mocked fetch)", () => {
       /malformed/i,
     );
   });
+
+  it("throws when the merchantRisk answer is missing", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "jev-latest",
+        answers: {
+          promptInjection: { type: "noul", noul: 0.1 },
+          cryptoExfiltration: { type: "noul", noul: 0.1 },
+          priceAnomaly: { type: "noul", noul: 0.1 },
+        },
+      }),
+    } as Response);
+
+    await expect(assessListing(baseListing, { apiKey: "test-key", fetchImpl })).rejects.toThrow(
+      /malformed/i,
+    );
+  });
 });
 
 describe("contentHash", () => {
@@ -123,12 +179,22 @@ describe("contentHash", () => {
     expect(a).toBe(b);
     expect(a).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it("changes when the merchant trust score changes (forces re-assessment)", async () => {
+    const before = await contentHash(baseListing);
+    const dropped = await contentHash({ ...baseListing, merchantTrustScore: 12 });
+    const differentSource = await contentHash({ ...baseListing, merchantTrustSource: "scamadvisor" });
+    const unverified = await contentHash({ ...baseListing, merchantVerified: false });
+    expect(dropped).not.toBe(before);
+    expect(differentSource).not.toBe(before);
+    expect(unverified).not.toBe(before);
+  });
 });
 
 const liveApiKey = process.env.JEV_API_KEY;
 
 describe.skipIf(!liveApiKey)("assessListing live Jev", () => {
-  it("scores seeded listings for injection, pricing, and crypto patterns", async () => {
+  it("scores seeded listings for injection, pricing, crypto, and merchant risk", async () => {
     const apiKey = liveApiKey as string;
 
     const evil = await assessListing(
@@ -146,16 +212,21 @@ describe.skipIf(!liveApiKey)("assessListing live Jev", () => {
         currency: "usd",
         recurring: true,
         requestsPerMonth: 999_999_999,
+        merchantTrustScore: 12,
+        merchantTrustSource: "fixture",
+        merchantVerified: false,
       },
       { apiKey },
     );
 
     expect(evil.promptInjection).toBeGreaterThan(0.9);
     expect(evil.priceAnomaly).toBeGreaterThan(0.5);
+    expect(evil.merchantRisk).toBeGreaterThan(0.5);
 
     const acme = await assessListing(baseListing, { apiKey });
     expect(acme.promptInjection).toBeLessThan(0.2);
     expect(acme.priceAnomaly).toBeLessThan(0.5);
+    expect(acme.merchantRisk).toBeLessThan(0.5);
 
     const crypto = await assessListing(
       {
@@ -169,6 +240,9 @@ describe.skipIf(!liveApiKey)("assessListing live Jev", () => {
         currency: "usd",
         recurring: false,
         requestsPerMonth: null,
+        merchantTrustScore: null,
+        merchantTrustSource: "unavailable",
+        merchantVerified: false,
       },
       { apiKey },
     );

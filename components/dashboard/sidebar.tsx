@@ -19,6 +19,7 @@ import {
   Menu,
   MessageSquare,
   Receipt,
+  ShoppingBasket,
   X,
   Plug,
 } from "lucide-react";
@@ -29,16 +30,17 @@ import { Wordmark } from "@/components/brand/wordmark";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/concierge", label: "Concierge", icon: MessageSquare },
-  { href: "/dashboard/agents", label: "Agent", icon: Bot },
-  { href: "/dashboard/delegations", label: "Delegation", icon: Link2 },
-  { href: "/dashboard/registry", label: "Registry", icon: BadgeCheck },
+  { href: "/dashboard/groceries", label: "Groceries", icon: ShoppingBasket },
+  { href: "/dashboard/inventory", label: "Inventory", icon: Boxes },
+  { href: "/dashboard/playground", label: "Playground", icon: FlaskConical },
   { href: "/dashboard/approvals", label: "Approvals", icon: ClipboardCheck, badgeKey: "approvals" as const },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt },
   { href: "/dashboard/audit", label: "Audit Trail", icon: FileSearch },
-  { href: "/dashboard/inventory", label: "Inventory", icon: Boxes },
+  { href: "/dashboard/delegations", label: "Delegation", icon: Link2 },
   { href: "/dashboard/scenarios", label: "Scenarios", icon: LayoutGrid },
-  { href: "/dashboard/playground", label: "Playground", icon: FlaskConical },
+  { href: "/dashboard/registry", label: "Registry", icon: BadgeCheck },
   { href: "/dashboard/connect", label: "Connect", icon: Plug },
+  { href: "/dashboard/agents", label: "Agent", icon: Bot },
   { href: "/dashboard/attack-lab", label: "Attack Lab", icon: ShieldAlert },
 ];
 
