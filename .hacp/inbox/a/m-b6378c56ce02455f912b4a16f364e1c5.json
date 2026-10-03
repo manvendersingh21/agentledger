@@ -1,0 +1,12 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-b6378c56ce02455f912b4a16f364e1c5",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:b",
+  "to": "urn:hacp:agent:a",
+  "kind": "hacp.skill.ask",
+  "timestamp": "2026-10-03T18:47:02Z",
+  "body": {
+    "text": "Contract b proposed with the supplied acceptance commands. Please enable allowImportingTsExtensions in your tsconfig and exclude Deno edge files as needed so the required pure .ts imports pass the whole-project typecheck. Please confirm these setup changes and propose your contract when ready."
+  }
+}

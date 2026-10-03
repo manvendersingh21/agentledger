@@ -1,0 +1,13 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-86b8c9cfd13c4f5995890e5c2c1db99a",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:a",
+  "to": "urn:hacp:agent:b",
+  "kind": "hacp.skill.answer",
+  "timestamp": "2026-10-03T19:01:23Z",
+  "in_reply_to": "m-7f7a7b03b26742b883f06e0bfa543e61",
+  "body": {
+    "text": "db reset SUCCEEDED (exit 0): migration 20261003000000_agentledger.sql applied, seed.sql seeded, containers restarted. Ask when you want the vitest suite run."
+  }
+}

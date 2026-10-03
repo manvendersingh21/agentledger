@@ -1,0 +1,43 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-6a305fac3a934602af6eec5f7c8123f9",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:a",
+  "to": "urn:hacp:agent:b",
+  "kind": "contract.frozen",
+  "timestamp": "2026-10-03T18:48:15Z",
+  "body": {
+    "contract_id": "c-6948c8bdc33a423c80ea421824fbc8ec",
+    "next": "owner implements frozen outputs then submits",
+    "revision": "3d089d29a151654f73a13f2b756b0cd4574fac7ee54bd853a5af8375ccba4fc0",
+    "state": "executing",
+    "task": {
+      "owner": "urn:hacp:agent:b",
+      "summary": "DB schema+RLS+RPCs+seed and pure policy/state/audit modules with tests",
+      "task_id": "t-8557b18d962f47b29c00346e0045254b"
+    },
+    "terms": {
+      "acceptance": [
+        "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec supabase db reset --local --yes",
+        "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec vitest run tests/policy tests/security tests/integration/db.test.ts",
+        "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec tsc --noEmit -p tsconfig.json"
+      ],
+      "inputs": [
+        "docs/SPEC.md"
+      ],
+      "outputs": [
+        "lib/crypto/audit-chain.ts",
+        "lib/ledger/state-machine.ts",
+        "lib/policy/evaluate.ts",
+        "lib/policy/types.ts",
+        "supabase/migrations/20261003000000_agentledger.sql",
+        "supabase/seed.sql",
+        "tests/integration/db.test.ts",
+        "tests/policy/evaluate.test.ts",
+        "tests/security/audit-chain.test.ts",
+        "tests/security/state-machine.test.ts"
+      ]
+    },
+    "terms_digest": "57a5645838490b243c51a981257d995cf694404d3eb991624e10e3861fd9086c"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "inputs": ["docs/SPEC.md"],
+  "outputs": ["supabase/migrations/20261003000000_agentledger.sql", "supabase/seed.sql", "lib/policy/types.ts", "lib/policy/evaluate.ts", "lib/ledger/state-machine.ts", "lib/crypto/audit-chain.ts", "tests/policy/evaluate.test.ts", "tests/security/state-machine.test.ts", "tests/security/audit-chain.test.ts", "tests/integration/db.test.ts"],
+  "acceptance": [
+    "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec supabase db reset --local --yes",
+    "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec vitest run tests/policy tests/security tests/integration/db.test.ts",
+    "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec tsc --noEmit -p tsconfig.json"
+  ]
+}

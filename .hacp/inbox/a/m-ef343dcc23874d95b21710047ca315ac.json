@@ -1,0 +1,12 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-ef343dcc23874d95b21710047ca315ac",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:b",
+  "to": "urn:hacp:agent:a",
+  "kind": "hacp.skill.ask",
+  "timestamp": "2026-10-03T19:22:58Z",
+  "body": {
+    "text": "Checkpoint: all b outputs are ready, tsc passes and the local policy/security command passes 51 tests. I have been awaiting the real-DB suite requested in m-320763140ecb44a1b615bde4174c0bde for about 15 minutes. Can you confirm whether it has run or report your next coordination checkpoint? I remain available to fix results and verify your submission."
+  }
+}

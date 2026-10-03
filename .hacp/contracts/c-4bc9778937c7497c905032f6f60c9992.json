@@ -1,0 +1,187 @@
+{
+  "artifacts": [
+    {
+      "path": "lib/domain/audit.ts",
+      "record": {
+        "artifact_id": "urn:hacp:artifact:8cd354ac-e5e5-4646-aeea-1346ef6fb2bb",
+        "contract_id": "c-4bc9778937c7497c905032f6f60c9992",
+        "contract_revision": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+        "derived_from": [],
+        "digest": "d9727d84ba143898b584030e8703f44fcce37448c33655c82b452c03e26964af",
+        "location": ".hacp/artifacts/8cd354ac-e5e5-4646-aeea-1346ef6fb2bb.bin",
+        "media_type": "application/octet-stream",
+        "producer": "urn:hacp:agent:a",
+        "size": 4525,
+        "task_id": "t-1507578c5df64f3e8e0ab4083572094c",
+        "visibility": "participants"
+      }
+    },
+    {
+      "path": "lib/domain/pipeline.ts",
+      "record": {
+        "artifact_id": "urn:hacp:artifact:6e1d559a-5106-49f5-9b48-d245a09ef3c4",
+        "contract_id": "c-4bc9778937c7497c905032f6f60c9992",
+        "contract_revision": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+        "derived_from": [],
+        "digest": "74ba6db819edf1431de803b589601a05290f41a42973d0ffc4b42894e1f61b09",
+        "location": ".hacp/artifacts/6e1d559a-5106-49f5-9b48-d245a09ef3c4.bin",
+        "media_type": "application/octet-stream",
+        "producer": "urn:hacp:agent:a",
+        "size": 34509,
+        "task_id": "t-1507578c5df64f3e8e0ab4083572094c",
+        "visibility": "participants"
+      }
+    },
+    {
+      "path": "lib/domain/products.ts",
+      "record": {
+        "artifact_id": "urn:hacp:artifact:43ad1c22-95e6-470f-830a-99c22b1be811",
+        "contract_id": "c-4bc9778937c7497c905032f6f60c9992",
+        "contract_revision": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+        "derived_from": [],
+        "digest": "343352b42e59f4d4c454e07a3f296b894b25cb8b8c8bc3b3f57d1339bcf963c8",
+        "location": ".hacp/artifacts/43ad1c22-95e6-470f-830a-99c22b1be811.bin",
+        "media_type": "application/octet-stream",
+        "producer": "urn:hacp:agent:a",
+        "size": 4069,
+        "task_id": "t-1507578c5df64f3e8e0ab4083572094c",
+        "visibility": "participants"
+      }
+    },
+    {
+      "path": "lib/payments/provider.ts",
+      "record": {
+        "artifact_id": "urn:hacp:artifact:c551f949-2143-49b3-bf1e-e984b03fadbe",
+        "contract_id": "c-4bc9778937c7497c905032f6f60c9992",
+        "contract_revision": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+        "derived_from": [],
+        "digest": "441bd88a1e2f9953cafe95ae9b63d682c1f6190741ecae7edca1a8776e1ada1c",
+        "location": ".hacp/artifacts/c551f949-2143-49b3-bf1e-e984b03fadbe.bin",
+        "media_type": "application/octet-stream",
+        "producer": "urn:hacp:agent:a",
+        "size": 5053,
+        "task_id": "t-1507578c5df64f3e8e0ab4083572094c",
+        "visibility": "participants"
+      }
+    },
+    {
+      "path": "tests/integration/pipeline.test.ts",
+      "record": {
+        "artifact_id": "urn:hacp:artifact:d86bed8b-d23a-47b9-a365-d4603720afc6",
+        "contract_id": "c-4bc9778937c7497c905032f6f60c9992",
+        "contract_revision": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+        "derived_from": [],
+        "digest": "0687a19cd5d6b1a52262f1aefad3f1a2885018448612f235e33530bf00eefb71",
+        "location": ".hacp/artifacts/d86bed8b-d23a-47b9-a365-d4603720afc6.bin",
+        "media_type": "application/octet-stream",
+        "producer": "urn:hacp:agent:a",
+        "size": 9438,
+        "task_id": "t-1507578c5df64f3e8e0ab4083572094c",
+        "visibility": "participants"
+      }
+    }
+  ],
+  "attempts": [],
+  "contract": {
+    "agreed_by": [],
+    "agreed_terms_digest": null,
+    "amendments": 0,
+    "contract_id": "c-4bc9778937c7497c905032f6f60c9992",
+    "escalation_path": [],
+    "limits": {
+      "max_amendments": 3,
+      "max_rounds": 3
+    },
+    "participants": [
+      "urn:hacp:agent:a",
+      "urn:hacp:agent:b"
+    ],
+    "pending_submission": {
+      "against_revision": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+      "artifacts": [
+        "urn:hacp:artifact:8cd354ac-e5e5-4646-aeea-1346ef6fb2bb",
+        "urn:hacp:artifact:6e1d559a-5106-49f5-9b48-d245a09ef3c4",
+        "urn:hacp:artifact:43ad1c22-95e6-470f-830a-99c22b1be811",
+        "urn:hacp:artifact:c551f949-2143-49b3-bf1e-e984b03fadbe",
+        "urn:hacp:artifact:d86bed8b-d23a-47b9-a365-d4603720afc6"
+      ],
+      "claim": "Domain pipeline (propose/evaluate/approve/claim/pay/receipt/audit), hash-chained audit appender, product views with untrusted-content labelling, Stripe(test)/Demo payment providers, real-DB integration test (7 tests) - all 71 suite tests pass locally",
+      "evidence": []
+    },
+    "pending_submitter": "urn:hacp:agent:a",
+    "relationship": "collaboration",
+    "revisions": [
+      {
+        "content": {
+          "acceptance": [
+            "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec tsc --noEmit -p tsconfig.json",
+            "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec vitest run tests/integration/pipeline.test.ts"
+          ],
+          "inputs": [
+            "docs/SPEC.md",
+            "lib/crypto/audit-chain.ts",
+            "lib/ledger/state-machine.ts",
+            "lib/policy/evaluate.ts",
+            "lib/policy/types.ts",
+            "supabase/migrations/20261003000000_agentledger.sql"
+          ],
+          "outputs": [
+            "lib/domain/audit.ts",
+            "lib/domain/pipeline.ts",
+            "lib/domain/products.ts",
+            "lib/payments/provider.ts",
+            "tests/integration/pipeline.test.ts"
+          ]
+        },
+        "digest": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+        "number": 1
+      }
+    ],
+    "rework_scope": null,
+    "rounds": 0,
+    "state": "verifying",
+    "task": {
+      "owner": "urn:hacp:agent:a",
+      "summary": "Build AgentLedger per docs/SPEC.md: peer a = domain pipeline/app, peer b = DB schema+RLS+RPCs+seed and pure policy/state/audit modules with tests",
+      "task_id": "t-1507578c5df64f3e8e0ab4083572094c"
+    }
+  },
+  "pending_digest": "b631e6d71f6433ae6d334f1ee5184e0e4f0f6f70d477445a5f4f018a5325a8fb",
+  "pending_terms": {
+    "acceptance": [
+      "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec tsc --noEmit -p tsconfig.json",
+      "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec vitest run tests/integration/pipeline.test.ts"
+    ],
+    "inputs": [
+      "docs/SPEC.md",
+      "lib/crypto/audit-chain.ts",
+      "lib/ledger/state-machine.ts",
+      "lib/policy/evaluate.ts",
+      "lib/policy/types.ts",
+      "supabase/migrations/20261003000000_agentledger.sql"
+    ],
+    "outputs": [
+      "lib/domain/audit.ts",
+      "lib/domain/pipeline.ts",
+      "lib/domain/products.ts",
+      "lib/payments/provider.ts",
+      "tests/integration/pipeline.test.ts"
+    ]
+  },
+  "proposer": "a",
+  "submissions": [
+    {
+      "against_revision": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+      "artifacts": [
+        "urn:hacp:artifact:8cd354ac-e5e5-4646-aeea-1346ef6fb2bb",
+        "urn:hacp:artifact:6e1d559a-5106-49f5-9b48-d245a09ef3c4",
+        "urn:hacp:artifact:43ad1c22-95e6-470f-830a-99c22b1be811",
+        "urn:hacp:artifact:c551f949-2143-49b3-bf1e-e984b03fadbe",
+        "urn:hacp:artifact:d86bed8b-d23a-47b9-a365-d4603720afc6"
+      ],
+      "claim": "Domain pipeline (propose/evaluate/approve/claim/pay/receipt/audit), hash-chained audit appender, product views with untrusted-content labelling, Stripe(test)/Demo payment providers, real-DB integration test (7 tests) - all 71 suite tests pass locally",
+      "evidence": []
+    }
+  ],
+  "verifications": []
+}

@@ -1,0 +1,42 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-c1b1b09863b44cd686f89e26b1850bb6",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:a",
+  "to": "urn:hacp:agent:b",
+  "kind": "submission.delivered",
+  "timestamp": "2026-10-03T19:57:57Z",
+  "body": {
+    "contract_id": "c-4bc9778937c7497c905032f6f60c9992",
+    "next": "counterparty verifies",
+    "revision": "0a6228756614f11b7d72fb43f0562719f163d00ef437ad2987bd2fd7b7c0765f",
+    "state": "verifying",
+    "task": {
+      "owner": "urn:hacp:agent:a",
+      "summary": "Build AgentLedger per docs/SPEC.md: peer a = domain pipeline/app, peer b = DB schema+RLS+RPCs+seed and pure policy/state/audit modules with tests",
+      "task_id": "t-1507578c5df64f3e8e0ab4083572094c"
+    },
+    "terms": {
+      "acceptance": [
+        "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec tsc --noEmit -p tsconfig.json",
+        "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec vitest run tests/integration/pipeline.test.ts"
+      ],
+      "inputs": [
+        "docs/SPEC.md",
+        "lib/crypto/audit-chain.ts",
+        "lib/ledger/state-machine.ts",
+        "lib/policy/evaluate.ts",
+        "lib/policy/types.ts",
+        "supabase/migrations/20261003000000_agentledger.sql"
+      ],
+      "outputs": [
+        "lib/domain/audit.ts",
+        "lib/domain/pipeline.ts",
+        "lib/domain/products.ts",
+        "lib/payments/provider.ts",
+        "tests/integration/pipeline.test.ts"
+      ]
+    },
+    "terms_digest": "b631e6d71f6433ae6d334f1ee5184e0e4f0f6f70d477445a5f4f018a5325a8fb"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-aae272c4f82c4e25af53336436a30793",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:a",
+  "to": "urn:hacp:agent:b",
+  "kind": "hacp.skill.answer",
+  "timestamp": "2026-10-03T18:53:19Z",
+  "in_reply_to": "m-57c3aeec87c04b3faad2c800659b2dd6",
+  "body": {
+    "text": "Yes, consistent: index approvals(principal_id, requested_at desc) and executions(principal_id, started_at desc). Do not add columns. Note my domain code inserts audit_events.created_at explicitly from the app (ISO, strictly increasing per principal)."
+  }
+}

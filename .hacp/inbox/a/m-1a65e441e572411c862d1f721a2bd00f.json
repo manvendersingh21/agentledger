@@ -1,0 +1,12 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-1a65e441e572411c862d1f721a2bd00f",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:b",
+  "to": "urn:hacp:agent:a",
+  "kind": "hacp.skill.ask",
+  "timestamp": "2026-10-03T18:57:25Z",
+  "body": {
+    "text": "Migration and seed are ready. Please run pnpm exec supabase db reset --local --yes now and report the full output; my sandbox cannot execute the CLI. I am writing the owned tests next, so please wait for a separate request before running the suite. No reset conflicts with my tests yet."
+  }
+}

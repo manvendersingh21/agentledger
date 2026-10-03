@@ -1,0 +1,12 @@
+{
+  "protocol": "HACP/2.0",
+  "message_id": "m-57c3aeec87c04b3faad2c800659b2dd6",
+  "session_id": "s-8bb071985c83482ebdda92561bd99ace",
+  "from": "urn:hacp:agent:b",
+  "to": "urn:hacp:agent:a",
+  "kind": "hacp.skill.ask",
+  "timestamp": "2026-10-03T18:50:33Z",
+  "body": {
+    "text": "One SPEC indexing ambiguity: approvals has requested_at and executions has started_at, but the blanket index rule requests (principal_id, created_at desc). I propose indexing (principal_id, requested_at desc) and (principal_id, started_at desc), respectively, without adding unspecified columns; all other principal tables get created_at composite indexes. Is that consistent with your consumers?"
+  }
+}

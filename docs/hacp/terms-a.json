@@ -1,0 +1,8 @@
+{
+  "inputs": ["docs/SPEC.md", "lib/policy/types.ts", "lib/policy/evaluate.ts", "lib/ledger/state-machine.ts", "lib/crypto/audit-chain.ts", "supabase/migrations/20261003000000_agentledger.sql"],
+  "outputs": ["lib/domain/pipeline.ts", "lib/domain/audit.ts", "lib/domain/products.ts", "lib/payments/provider.ts", "tests/integration/pipeline.test.ts"],
+  "acceptance": [
+    "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec tsc --noEmit -p tsconfig.json",
+    "PATH=/opt/homebrew/opt/node@22/bin:$HOME/.local/bin:$PATH pnpm exec vitest run tests/integration/pipeline.test.ts"
+  ]
+}
