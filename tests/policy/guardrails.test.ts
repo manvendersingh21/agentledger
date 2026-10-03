@@ -8,6 +8,7 @@ const basePolicy: GuardrailInput["policy"] = {
   priceAnomalyReviewThreshold: 0.5,
   injectionKillThreshold: 0.9,
   killSwitchEnabled: true,
+  allowedDomains: [],
 };
 
 const baseInput: GuardrailInput = {
@@ -112,5 +113,42 @@ describe("evaluateGuardrails", () => {
     expect(result.violations).toEqual([]);
     expect(result.requireApproval).toBe(false);
     expect(result.killSwitch.trigger).toBe(false);
+  });
+
+  it("does not restrict websites when allowedDomains is empty", () => {
+    const result = evaluateGuardrails({
+      ...baseInput,
+      merchant: { slug: "evil-cloud", domain: "evil-cloud-deals.xyz", trustScore: 12, trustSource: "fixture" },
+      policy: { ...basePolicy, allowedDomains: [], trustedDomainOverrides: ["evil-cloud-deals.xyz"] },
+    });
+    expect(result.violations).not.toContain("WEBSITE_NOT_ALLOWED");
+    expect(result.checks.allowed_websites.passed).toBe(true);
+  });
+
+  it("allows exact hostname and subdomains when listed", () => {
+    const policy = { ...basePolicy, allowedDomains: ["acme-api.dev"] };
+    const exact = evaluateGuardrails({
+      ...baseInput,
+      policy,
+    });
+    expect(exact.violations).not.toContain("WEBSITE_NOT_ALLOWED");
+
+    const subdomain = evaluateGuardrails({
+      ...baseInput,
+      merchant: { ...baseInput.merchant, domain: "api.acme-api.dev" },
+      policy,
+    });
+    expect(subdomain.violations).not.toContain("WEBSITE_NOT_ALLOWED");
+    expect(subdomain.checks.allowed_websites.passed).toBe(true);
+  });
+
+  it("denies WEBSITE_NOT_ALLOWED when domain is not on the list", () => {
+    const result = evaluateGuardrails({
+      ...baseInput,
+      merchant: { slug: "vectorbase", domain: "vectorbase.io", trustScore: 97, trustSource: "fixture" },
+      policy: { ...basePolicy, allowedDomains: ["acme-api.dev"] },
+    });
+    expect(result.violations).toContain("WEBSITE_NOT_ALLOWED");
+    expect(result.checks.allowed_websites.passed).toBe(false);
   });
 });

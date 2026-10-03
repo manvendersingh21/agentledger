@@ -25,6 +25,9 @@ const Body = z
     injection_kill_threshold: threshold,
     kill_switch_enabled: z.boolean(),
     require_verified_merchant: z.boolean().optional(),
+    allowed_domains: z
+      .array(z.string().regex(/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i))
+      .max(50),
   })
   .refine((d) => d.daily_limit_cents >= d.max_amount_cents, {
     message: "Daily limit must be at least the transaction limit.",

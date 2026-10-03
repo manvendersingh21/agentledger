@@ -21,10 +21,11 @@ const STATUS_CONFIG: Record<
 export function StatusBadge({ status }: { status: IntentStatus }) {
   const config = STATUS_CONFIG[status];
   return (
-    <Badge
-      variant={config.variant}
-      className={cn(config.pulse && "animate-pulse")}
-    >
+    <Badge variant={config.variant}>
+      <span
+        aria-hidden
+        className={cn("inline-block size-1.5 rounded-full bg-current", config.pulse && "animate-pulse-dot")}
+      />
       {config.label}
     </Badge>
   );

@@ -2,8 +2,8 @@
 
 export type AgentActivity =
   | { type: "status"; message: string }
-  | { type: "tool_call"; id: string; tool: AgentToolName; input: unknown }
-  | { type: "tool_result"; id: string; tool: AgentToolName; output: unknown }
+  | { type: "tool_call"; id: string; tool: AgentToolName; input: unknown; simulated?: true }
+  | { type: "tool_result"; id: string; tool: AgentToolName; output: unknown; simulated?: true }
   | { type: "text"; text: string }
   | { type: "error"; message: string }
   | { type: "done"; text: string; steps: number };

@@ -1,22 +1,81 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, ShieldAlert } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ArrowUpRight, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 interface AuthoritativeTerms {
   product_name: string;
   merchant: string;
   amount_cents: number;
   recurring: boolean;
 }
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { formatCents } from "@/lib/utils";
+import { Eyebrow } from "@/components/brand/eyebrow";
+import { cn, formatCents } from "@/lib/utils";
 
 type ScenarioId = "prompt-injection" | "parameter-tampering" | "replay";
+
+type PillVariant = "red" | "emerald" | "violet" | "amber" | "sky" | "neutral";
+
+const PILL_CLASS: Record<PillVariant, string> = {
+  red: "bg-blocked-bg text-blocked",
+  emerald: "bg-executed-bg text-executed",
+  violet: "bg-duplicate-bg text-duplicate",
+  amber: "bg-waiting-bg text-waiting",
+  sky: "bg-approved-bg text-approved",
+  neutral: "bg-[#F2F2F2] text-ink-2",
+};
+
+function OutcomePill({ variant, children, className }: { variant: PillVariant; children: ReactNode; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-[4px] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em]",
+        PILL_CLASS[variant],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+interface ScenarioDef {
+  id: ScenarioId;
+  number: string;
+  title: string;
+  description: string;
+  expect: string;
+  note?: string;
+}
+
+const SCENARIOS: ScenarioDef[] = [
+  {
+    id: "prompt-injection",
+    number: "01",
+    title: "Prompt injection",
+    description: "Malicious merchant listing tries to override purchase policy.",
+    expect: "Expect BLOCKED",
+  },
+  {
+    id: "parameter-tampering",
+    number: "02",
+    title: "Parameter tampering",
+    description:
+      "Agent claims $5 one-time from acme-api for Evil Cloud; server uses authoritative $500 recurring terms.",
+    expect: "Expect authoritative terms",
+  },
+  {
+    id: "replay",
+    number: "03",
+    title: "Replay",
+    description:
+      "Legitimate $15 purchase with your approval, then concurrent and sequential retries.",
+    expect: "Expect DUPLICATE BLOCKED",
+    note: "Runs a real Stripe test-mode charge of $15 (counts toward the $50 daily limit; use Reset demo on Overview).",
+  },
+];
 
 interface AttackStep {
   label: string;
@@ -44,7 +103,7 @@ function intentIdFromResult(result: unknown): string | null {
   return null;
 }
 
-function stepPill(result: unknown): { label: string; variant: "red" | "emerald" | "violet" | "amber" | "sky" | "neutral" } {
+function stepPill(result: unknown): { label: string; variant: PillVariant } {
   if (!result || typeof result !== "object") {
     return { label: "UNKNOWN", variant: "neutral" };
   }
@@ -72,41 +131,49 @@ function authoritativeFromStep(steps: AttackStep[]): AuthoritativeTerms | null {
   return null;
 }
 
-function StepRow({ step }: { step: AttackStep }) {
+function StepRow({ step, index }: { step: AttackStep; index: number }) {
   const [open, setOpen] = useState(false);
   const pill = stepPill(step.result);
   const intentId = intentIdFromResult(step.result);
 
   return (
-    <li className="rounded-md border border-border bg-muted/20">
-      <button
-        type="button"
-        className="flex w-full items-start gap-3 px-3 py-2 text-left text-sm"
-        onClick={() => setOpen((o) => !o)}
-      >
-        {open ? (
-          <ChevronDown className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        )}
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={pill.variant}>{pill.label}</Badge>
-            <span>{step.label}</span>
+    <li className="border-t border-line first:border-t-0">
+      <div className="flex items-start gap-4 px-5 py-4 sm:px-6">
+        <span className="w-6 shrink-0 pt-1 font-mono text-xs text-ink-3">
+          {String(index + 1).padStart(2, "0")}
+        </span>
+        <button
+          type="button"
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-start gap-3 text-left"
+          onClick={() => setOpen((o) => !o)}
+        >
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <OutcomePill variant={pill.variant}>{pill.label}</OutcomePill>
+              <span className="text-[15px] text-ink">{step.label}</span>
+            </div>
           </div>
-          {intentId ? (
-            <Link
-              href={`/dashboard/transactions/${intentId}`}
-              className="font-mono text-xs text-sky-400 hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              View transaction timeline →
-            </Link>
-          ) : null}
+          {open ? (
+            <ChevronDown className="mt-1 size-4 shrink-0 text-ink-3" />
+          ) : (
+            <ChevronRight className="mt-1 size-4 shrink-0 text-ink-3" />
+          )}
+        </button>
+      </div>
+      {intentId ? (
+        <div className="-mt-2 pb-4 pl-15 pr-5 sm:pl-16">
+          <Link
+            href={`/dashboard/transactions/${intentId}`}
+            className="inline-flex items-center gap-1 font-mono text-xs text-accent hover:text-accent-hover hover:underline"
+          >
+            View transaction timeline
+            <ArrowUpRight className="size-3" />
+          </Link>
         </div>
-      </button>
+      ) : null}
       {open ? (
-        <div className="border-t border-border p-3">
+        <div className="border-t border-line bg-canvas p-4 sm:p-6">
           <CodeBlock value={step.result} title="Raw response" />
         </div>
       ) : null}
@@ -141,92 +208,97 @@ export function AttackLabClient() {
   const replaySummary = last?.scenario === "replay" ? summarizeReplay(last) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {error ? (
-        <p className="rounded-md border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+        <p className="rounded-[6px] bg-blocked-bg px-5 py-4 text-sm font-medium text-blocked">
           {error}
         </p>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ShieldAlert className="size-4 text-red-400" />
-              Prompt injection
-            </CardTitle>
-            <CardDescription>
-              Malicious merchant listing tries to override purchase policy. Expect BLOCKED.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              disabled={loading !== null}
-              onClick={() => void runScenario("prompt-injection")}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {SCENARIOS.map((scenario) => {
+          const isActive = last?.scenario === scenario.id;
+          const isLoading = loading === scenario.id;
+          return (
+            <article
+              key={scenario.id}
+              className={cn(
+                "flex flex-col gap-8 rounded-[6px] p-6 transition-colors sm:p-8",
+                isActive ? "bg-inverse text-white" : "border border-line bg-surface text-ink",
+              )}
             >
-              {loading === "prompt-injection" ? <Loader2 className="size-4 animate-spin" /> : null}
-              Run scenario
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Parameter tampering</CardTitle>
-            <CardDescription>
-              Agent claims $5 one-time from acme-api for Evil Cloud; server uses authoritative
-              $500 recurring terms.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              disabled={loading !== null}
-              onClick={() => void runScenario("parameter-tampering")}
-            >
-              {loading === "parameter-tampering" ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : null}
-              Run scenario
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Replay</CardTitle>
-            <CardDescription>
-              Legitimate $15 purchase with your approval, then concurrent and sequential retries.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              disabled={loading !== null}
-              onClick={() => void runScenario("replay")}
-            >
-              {loading === "replay" ? <Loader2 className="size-4 animate-spin" /> : null}
-              Run scenario
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Runs a real Stripe test-mode charge of $15 (counts toward the $50 daily limit; use
-              Reset demo on Overview).
-            </p>
-          </CardContent>
-        </Card>
+              <div className="flex items-start justify-between gap-4">
+                <span
+                  className={cn(
+                    "font-display text-7xl font-semibold leading-[0.85] tracking-[-0.045em] sm:text-8xl",
+                    isActive ? "text-white" : "text-accent",
+                  )}
+                >
+                  {scenario.number}
+                </span>
+                {isActive ? (
+                  <OutcomePill variant="neutral" className="bg-white/10 text-white">
+                    Last run
+                  </OutcomePill>
+                ) : null}
+              </div>
+              <div className="space-y-3">
+                <h2 className="font-display text-3xl font-semibold leading-[0.95] tracking-[-0.045em]">
+                  {scenario.title}
+                </h2>
+                <p className={cn("text-[15px] leading-relaxed", isActive ? "text-white/70" : "text-ink-2")}>
+                  {scenario.description}
+                </p>
+                <p
+                  className={cn(
+                    "text-[11px] font-semibold uppercase tracking-[0.08em]",
+                    isActive ? "text-white/50" : "text-ink-3",
+                  )}
+                >
+                  {scenario.expect}
+                </p>
+              </div>
+              <div className="mt-auto space-y-3">
+                <button
+                  type="button"
+                  disabled={loading !== null}
+                  onClick={() => void runScenario(scenario.id)}
+                  className={cn(
+                    "group inline-flex h-12 items-stretch overflow-hidden rounded-[4px] text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    isActive ? "bg-white text-ink" : "bg-inverse text-white",
+                  )}
+                >
+                  <span className="inline-flex items-center gap-2 px-5">
+                    {isLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+                    {isLoading ? "Running…" : "Run scenario"}
+                  </span>
+                  <span
+                    className={cn(
+                      "inline-flex w-12 items-center justify-center border-l",
+                      isActive ? "border-line" : "border-white/15",
+                    )}
+                  >
+                    <ArrowUpRight className="size-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </span>
+                </button>
+                {scenario.note ? (
+                  <p className={cn("text-xs", isActive ? "text-white/50" : "text-ink-3")}>
+                    {scenario.note}
+                  </p>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       {last?.scenario === "parameter-tampering" && last.claimed && auth ? (
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold">Agent claimed vs authoritative (database)</h3>
-          <div className="overflow-hidden rounded-lg border border-border">
+        <section className="space-y-4 rounded-[6px] border border-line bg-surface p-6 sm:p-8">
+          <Eyebrow>Authoritative terms</Eyebrow>
+          <h3 className="font-display text-3xl font-semibold leading-[0.95] tracking-[-0.045em] text-ink">
+            Agent claimed vs <span className="text-accent">authoritative</span> (database)
+          </h3>
+          <div className="overflow-hidden rounded-[6px] border border-line">
             <Table>
               <THead>
                 <TR>
@@ -238,53 +310,76 @@ export function AttackLabClient() {
               <TBody>
                 <TR>
                   <TD>Amount</TD>
-                  <TD className="font-mono">{formatCents(last.claimed.amount_cents)}</TD>
-                  <TD className="font-mono text-amber-400">
+                  <TD className="font-mono text-ink-3 line-through">
+                    {formatCents(last.claimed.amount_cents)}
+                  </TD>
+                  <TD className="font-mono font-semibold text-accent">
                     {formatCents(auth.amount_cents)}
                   </TD>
                 </TR>
                 <TR>
                   <TD>Recurring</TD>
-                  <TD className="font-mono">{String(last.claimed.recurring)}</TD>
-                  <TD className="font-mono text-amber-400">{String(auth.recurring)}</TD>
+                  <TD className="font-mono text-ink-3 line-through">
+                    {String(last.claimed.recurring)}
+                  </TD>
+                  <TD className="font-mono font-semibold text-accent">{String(auth.recurring)}</TD>
                 </TR>
                 <TR>
                   <TD>Merchant</TD>
-                  <TD className="font-mono">{last.claimed.merchant}</TD>
-                  <TD className="font-mono text-amber-400">{auth.merchant}</TD>
+                  <TD className="font-mono text-ink-3 line-through">{last.claimed.merchant}</TD>
+                  <TD className="font-mono font-semibold text-accent">{auth.merchant}</TD>
                 </TR>
                 <TR>
                   <TD>Product</TD>
-                  <TD className="text-muted-foreground">—</TD>
-                  <TD>{auth.product_name}</TD>
+                  <TD className="text-ink-3">—</TD>
+                  <TD className="text-ink">{auth.product_name}</TD>
                 </TR>
               </TBody>
             </Table>
           </div>
-        </div>
+        </section>
       ) : null}
 
       {replaySummary ? (
-        <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-4 font-mono text-sm">
-          <p className="text-emerald-400">{replaySummary.original}</p>
-          {replaySummary.retries.map((line, i) => (
-            <p key={i} className="text-violet-400">{line}</p>
-          ))}
-          <p className="mt-2 text-foreground">
-            ADDITIONAL CHARGE: {formatCents(replaySummary.additionalCents)}
-          </p>
-          <p className="text-muted-foreground">
-            executions_for_intent = {replaySummary.executionsForIntent ?? "—"}
-          </p>
-        </div>
+        <section className="grid gap-6 rounded-[6px] bg-inverse p-6 text-white sm:p-8 md:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50">
+              Replay outcome
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <OutcomePill variant="emerald">{replaySummary.original}</OutcomePill>
+              {replaySummary.retries.map((line, i) => (
+                <OutcomePill key={i} variant="violet">
+                  {line}
+                </OutcomePill>
+              ))}
+            </div>
+            <p className="font-mono text-xs text-white/50">
+              executions_for_intent = {replaySummary.executionsForIntent ?? "—"}
+            </p>
+          </div>
+          <div className="md:text-right">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50">
+              Additional charge
+            </p>
+            <p className="font-display text-6xl font-semibold leading-none tracking-[-0.045em] tabular-nums">
+              {formatCents(replaySummary.additionalCents)}
+            </p>
+          </div>
+        </section>
       ) : null}
 
       {last && last.steps.length > 0 ? (
-        <section className="space-y-3">
-          <h3 className="text-sm font-semibold capitalize">{last.scenario.replace(/-/g, " ")} results</h3>
-          <ul className="space-y-2">
+        <section className="space-y-4">
+          <div className="space-y-2">
+            <Eyebrow>Pipeline trace</Eyebrow>
+            <h3 className="font-display text-3xl font-semibold capitalize leading-[0.95] tracking-[-0.045em] text-ink">
+              {last.scenario.replace(/-/g, " ")} results
+            </h3>
+          </div>
+          <ul className="overflow-hidden rounded-[6px] border border-line bg-surface">
             {last.steps.map((step, i) => (
-              <StepRow key={`${step.label}-${i}`} step={step} />
+              <StepRow key={`${step.label}-${i}`} step={step} index={i} />
             ))}
           </ul>
         </section>

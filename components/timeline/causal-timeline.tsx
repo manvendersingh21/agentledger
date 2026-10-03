@@ -8,7 +8,8 @@ import type {
 } from "@/lib/data/types";
 import { CodeBlock } from "@/components/ui/code-block";
 import { PolicyChecklist } from "@/components/timeline/policy-checklist";
-import { formatCents, formatTime, cn } from "@/lib/utils";
+import { formatCents, cn } from "@/lib/utils";
+import { LocalTime } from "@/components/local-time";
 
 export interface CausalTimelineInput {
   delegation: DelegationRow | null;
@@ -32,12 +33,12 @@ interface TimelineNode {
 }
 
 const TONE_DOT: Record<NodeTone, string> = {
-  neutral: "bg-zinc-400 border-zinc-500/50",
-  sky: "bg-sky-400 border-sky-500/50",
-  amber: "bg-amber-400 border-amber-500/50",
-  emerald: "bg-emerald-400 border-emerald-500/50",
-  red: "bg-red-400 border-red-500/50",
-  violet: "bg-violet-400 border-violet-500/50",
+  neutral: "bg-accent ring-accent-wash",
+  sky: "bg-accent ring-accent-soft",
+  amber: "bg-waiting ring-waiting-bg",
+  emerald: "bg-executed ring-executed-bg",
+  red: "bg-blocked ring-blocked-bg",
+  violet: "bg-duplicate ring-duplicate-bg",
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -59,7 +60,7 @@ function delegationNode(delegation: DelegationRow): TimelineNode {
     tone: "sky",
     title: "Human delegation active",
     body: (
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-ink-2">
         Max {formatCents(delegation.max_amount_cents)} per transaction ·{" "}
         {formatCents(delegation.daily_limit_cents)}/day · approval above{" "}
         {formatCents(delegation.approval_threshold_cents)} · {recurringLabel}
@@ -78,7 +79,7 @@ function contextEventNode(event: AuditEventRow): TimelineNode | null {
         tone: "neutral",
         title: "Agent authenticated",
         body: (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-ink-2">
             Channel {String(data.channel ?? "unknown")}
           </p>
         ),
@@ -92,8 +93,8 @@ function contextEventNode(event: AuditEventRow): TimelineNode | null {
         tone: "neutral",
         title: "Marketplace searched",
         body: (
-          <p className="text-sm text-muted-foreground">
-            Query <span className="font-mono text-foreground/80">&quot;{query}&quot;</span>
+          <p className="text-sm text-ink-2">
+            Query <span className="font-mono text-ink">&quot;{query}&quot;</span>
             {count !== null ? ` · ${count} result${count === 1 ? "" : "s"}` : null}
           </p>
         ),
@@ -116,9 +117,14 @@ function contextEventNode(event: AuditEventRow): TimelineNode | null {
         tone: "red",
         title: "Untrusted merchant content retrieved",
         body: first ? (
-          <CodeBlock title="Untrusted merchant content" tone="danger" value={first.excerpt} />
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blocked">
+              Untrusted · treated as data, not instructions
+            </p>
+            <CodeBlock title="Untrusted merchant content" tone="danger" value={first.excerpt} />
+          </div>
         ) : (
-          <p className="text-xs text-muted-foreground">External merchant text flagged as untrusted.</p>
+          <p className="text-xs text-ink-2">External merchant text flagged as untrusted.</p>
         ),
       };
     }
@@ -142,13 +148,13 @@ function intentEventNode(
         tone: "neutral",
         title: "Purchase proposed",
         body: (
-          <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="space-y-2 text-sm text-ink-2">
             <p>
               {formatCents(input.intent.amount_cents, input.intent.currency)} · recurring{" "}
               {input.intent.recurring ? "yes" : "no"}
             </p>
             {input.intent.payload.agent_claimed ? (
-              <p className="font-mono text-xs text-foreground/70">
+              <p className="font-mono text-xs text-ink-2">
                 Agent-claimed payload recorded for audit
               </p>
             ) : null}
@@ -168,13 +174,14 @@ function intentEventNode(
         tone: "red",
         title: "Parameter tampering",
         body: (
-          <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-            <span className="font-semibold uppercase tracking-wide text-red-400">
+          <div className="rounded-[4px] border border-blocked/30 bg-blocked-bg px-3.5 py-2.5 text-sm text-ink">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blocked">
               Parameter tampering
             </span>
             {" — "}
-            agent claimed {claimedAmount !== null ? formatCents(claimedAmount) : "—"}, authoritative{" "}
-            {formatCents(authAmount)}
+            agent claimed{" "}
+            <span className="font-mono">{claimedAmount !== null ? formatCents(claimedAmount) : "—"}</span>,
+            authoritative <span className="font-mono font-semibold">{formatCents(authAmount)}</span>
           </div>
         ),
       };
@@ -185,7 +192,7 @@ function intentEventNode(
         at: event.created_at,
         tone: "neutral",
         title: "Policy evaluation started",
-        body: <p className="text-xs text-muted-foreground">Deterministic rules against delegation</p>,
+        body: <p className="text-xs text-ink-2">Deterministic rules against delegation</p>,
       };
     case "GUARDRAILS_EVALUATED": {
       const risk = asRecord(data.risk_signals);
@@ -200,15 +207,15 @@ function intentEventNode(
         tone: "neutral",
         title: "Guardrails evaluated",
         body: (
-          <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="space-y-2 text-sm text-ink-2">
             <p className="text-xs">{source}</p>
             {inj !== null && crypto !== null && price !== null ? (
-              <p className="font-mono text-xs text-foreground/80">
+              <p className="font-mono text-xs text-ink">
                 injection {inj.toFixed(2)} · price anomaly {price.toFixed(2)} · crypto{" "}
                 {crypto.toFixed(2)}
               </p>
             ) : (
-              <p className="text-xs text-amber-400/90">Risk signals unavailable — fails toward human approval</p>
+              <p className="text-xs text-waiting">Risk signals unavailable — fails toward human approval</p>
             )}
             <PolicyChecklist decision={input.decision} merchantDisplayName={merchant} />
           </div>
@@ -223,11 +230,11 @@ function intentEventNode(
         title: "Agent kill switch triggered",
         emphasis: "blocked",
         body: (
-          <div className="rounded-md border border-red-500/50 bg-red-500/15 px-4 py-3 text-sm text-red-100">
-            <p className="text-base font-semibold uppercase tracking-wide text-red-300">
+          <div className="rounded-[4px] border border-blocked/50 bg-blocked/10 px-4 py-3 text-sm text-white">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blocked">
               AGENT HALTED
             </p>
-            <p className="mt-2">{String(data.reason ?? "Injection or exfiltration threshold exceeded")}</p>
+            <p className="mt-2 text-white/85">{String(data.reason ?? "Injection or exfiltration threshold exceeded")}</p>
           </div>
         ),
       };
@@ -238,7 +245,7 @@ function intentEventNode(
         tone: "emerald",
         title: "Agent re-enabled",
         body: (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-ink-2">
             Human cleared kill switch · channel {String(data.channel ?? "dashboard")}
           </p>
         ),
@@ -254,7 +261,7 @@ function intentEventNode(
           <div className="space-y-3">
             <PolicyChecklist decision={input.decision} merchantDisplayName={merchant} />
             {Array.isArray(data.reasons) && data.reasons.length > 0 ? (
-              <ul className="list-inside list-disc text-xs text-red-300/90">
+              <ul className="list-inside list-disc text-xs text-white/75">
                 {(data.reasons as string[]).map((r) => (
                   <li key={r}>{r}</li>
                 ))}
@@ -282,7 +289,7 @@ function intentEventNode(
         tone: "amber",
         title: "Human approval requested",
         body: (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-ink-2">
             {typeof data.product === "string" ? data.product : input.intent.payload.product_name} ·{" "}
             {formatCents(
               typeof data.amount_cents === "number" ? data.amount_cents : input.intent.amount_cents,
@@ -305,7 +312,7 @@ function intentEventNode(
         tone: "red",
         title: "Human denied",
         body: data.reason ? (
-          <p className="text-xs text-muted-foreground">{String(data.reason)}</p>
+          <p className="text-xs text-ink-2">{String(data.reason)}</p>
         ) : null,
       };
     case "EXECUTION_STARTED":
@@ -315,7 +322,7 @@ function intentEventNode(
         tone: "sky",
         title: "Execution started",
         body: (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-ink-2">
             Provider {String(data.provider_label ?? data.provider ?? input.paymentProviderLabel)}
           </p>
         ),
@@ -339,15 +346,15 @@ function intentEventNode(
                   href={stripeUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-mono text-xs text-sky-400 hover:underline"
+                  className="font-mono text-xs text-accent hover:text-accent-hover hover:underline"
                 >
                   {ref}
                 </Link>
               ) : (
-                <p className="font-mono text-xs text-foreground/80">{ref}</p>
+                <p className="font-mono text-xs text-ink">{ref}</p>
               )
             ) : null}
-            <p className="text-muted-foreground">
+            <p className="text-ink-2">
               {formatCents(
                 typeof data.amount_cents === "number" ? data.amount_cents : input.intent.amount_cents,
               )}
@@ -378,7 +385,7 @@ function intentEventNode(
         tone: "emerald",
         title: "Receipt generated",
         body: (
-          <p className="font-mono text-xs text-muted-foreground">
+          <p className="font-mono text-xs text-ink-2">
             {typeof data.receipt_id === "string" ? data.receipt_id.slice(0, 8) + "…" : "Receipt on file"}
           </p>
         ),
@@ -391,7 +398,7 @@ function intentEventNode(
         title: "Duplicate execution blocked",
         emphasis: "duplicate",
         body: (
-          <p className="text-sm text-violet-200/90">
+          <p className="text-sm text-ink">
             Original transaction already committed · Additional charge {formatCents(0)}
           </p>
         ),
@@ -402,7 +409,7 @@ function intentEventNode(
         at: event.created_at,
         tone: "violet",
         title: "Replay attempt blocked",
-        body: <p className="text-xs text-muted-foreground">{String(data.reason ?? "not allowed")}</p>,
+        body: <p className="text-xs text-ink-2">{String(data.reason ?? "not allowed")}</p>,
       };
     case "EVALUATION_FAILED_CLOSED":
       return {
@@ -411,7 +418,7 @@ function intentEventNode(
         tone: "red",
         title: "Evaluation failed closed",
         emphasis: "blocked",
-        body: <p className="text-sm text-red-300/90">{String(data.message ?? "Denied")}</p>,
+        body: <p className="text-sm text-white/80">{String(data.message ?? "Denied")}</p>,
       };
     default:
       return {
@@ -450,51 +457,66 @@ export function CausalTimeline({ input }: { input: CausalTimelineInput }) {
 
   if (nodes.length === 0) {
     return (
-      <p className="rounded-lg border border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+      <p className="rounded-[6px] border border-line bg-surface px-4 py-10 text-center text-sm text-ink-2">
         No timeline events for this transaction yet.
       </p>
     );
   }
 
   return (
-    <ol className="relative space-y-0">
-      {nodes.map((node, index) => (
-        <li key={node.id} className="relative flex gap-4 pb-8 last:pb-0">
-          {index < nodes.length - 1 ? (
+    <ol className="relative">
+      {nodes.map((node, index) => {
+        const blocked = node.emphasis === "blocked";
+        const duplicate = node.emphasis === "duplicate";
+        return (
+          <li key={node.id} className="relative flex gap-4 pb-7 last:pb-0">
+            {index < nodes.length - 1 ? (
+              <span
+                className="absolute left-[calc(5rem+4.5px)] top-4 bottom-0 w-px bg-line"
+                aria-hidden
+              />
+            ) : null}
+            <LocalTime
+              iso={node.at}
+              className="w-16 shrink-0 pt-0.5 text-right font-mono text-[11px] tabular-nums text-ink-3"
+            />
             <span
-              className="absolute left-[3.35rem] top-6 bottom-0 w-px bg-border"
+              className={cn(
+                "relative z-10 mt-1.5 size-2.5 shrink-0 rounded-full ring-4",
+                TONE_DOT[node.tone],
+              )}
               aria-hidden
             />
-          ) : null}
-          <time
-            className="w-16 shrink-0 pt-0.5 text-right font-mono text-xs tabular-nums text-muted-foreground"
-            dateTime={node.at}
-          >
-            {formatTime(node.at)}
-          </time>
-          <span
-            className={cn(
-              "relative z-10 mt-1 size-2.5 shrink-0 rounded-full border-2",
-              TONE_DOT[node.tone],
-            )}
-            aria-hidden
-          />
-          <div className="min-w-0 flex-1 space-y-2">
-            {node.emphasis === "blocked" ? (
-              <p className="text-lg font-semibold uppercase tracking-wide text-red-400">
-                Action blocked
+            <div
+              className={cn(
+                "min-w-0 flex-1 space-y-2",
+                blocked && "rounded-[6px] bg-inverse p-5 text-white",
+                duplicate && "rounded-[6px] border border-duplicate/30 bg-duplicate-bg p-5",
+              )}
+            >
+              {blocked ? (
+                <p className="font-display text-2xl font-semibold uppercase leading-none tracking-[-0.02em] text-blocked">
+                  Action blocked
+                </p>
+              ) : null}
+              {duplicate ? (
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-duplicate">
+                  Duplicate blocked
+                </p>
+              ) : null}
+              <p
+                className={cn(
+                  "font-medium",
+                  blocked ? "text-white" : duplicate ? "text-duplicate" : "text-ink",
+                )}
+              >
+                {node.title}
               </p>
-            ) : null}
-            {node.emphasis === "duplicate" ? (
-              <p className="text-sm font-semibold uppercase tracking-wide text-violet-400">
-                Duplicate blocked
-              </p>
-            ) : null}
-            <p className="font-medium text-foreground">{node.title}</p>
-            {node.body}
-          </div>
-        </li>
-      ))}
+              {node.body}
+            </div>
+          </li>
+        );
+      })}
     </ol>
   );
 }

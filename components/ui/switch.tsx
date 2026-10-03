@@ -30,15 +30,15 @@ export function Switch({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "bg-sky-500/80" : "bg-muted",
+        "peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas disabled:cursor-not-allowed disabled:opacity-50",
+        checked ? "border-accent bg-accent" : "border-line bg-[#E2E2E2]",
         className,
       )}
     >
       <span
         className={cn(
-          "pointer-events-none block size-4 rounded-full bg-background shadow-sm ring-0 transition-transform",
-          checked ? "translate-x-4" : "translate-x-0.5",
+          "pointer-events-none block size-[18px] rounded-full bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.18)] ring-0 transition-transform duration-200",
+          checked ? "translate-x-[22px]" : "translate-x-[2px]",
         )}
       />
     </button>

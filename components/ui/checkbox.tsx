@@ -31,8 +31,8 @@ export function Checkbox({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "peer inline-flex size-4 shrink-0 items-center justify-center rounded border border-input bg-background shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-        checked && "border-sky-500 bg-sky-500/20 text-sky-400",
+        "peer inline-flex size-[18px] shrink-0 items-center justify-center rounded-xs border border-[#CFCFCF] bg-surface text-white transition-colors hover:border-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas disabled:cursor-not-allowed disabled:opacity-50",
+        checked && "border-accent bg-accent hover:border-accent-hover hover:bg-accent-hover",
         className,
       )}
     >

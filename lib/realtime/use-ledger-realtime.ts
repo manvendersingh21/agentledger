@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export interface LedgerChange {
-  table: "action_intents" | "approvals" | "executions" | "receipts" | "audit_events";
+  table: "action_intents" | "approvals" | "executions" | "receipts" | "audit_events" | "agents";
   operation: "INSERT" | "UPDATE" | "DELETE";
   record: Record<string, unknown> | null;
   old_record: Record<string, unknown> | null;

@@ -1,16 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { BadgeCheck, Check, Loader2, ShieldAlert, X } from "lucide-react";
 import type { DelegationRow, MerchantRow } from "@/lib/data/types";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
+import { ArrowButton } from "@/components/brand/arrow-button";
+import { Eyebrow } from "@/components/brand/eyebrow";
+import { WebsiteTrustCheck } from "@/components/policy/website-trust-check";
 import { formatCents, cn } from "@/lib/utils";
+
+function merchantTrustSourceLabel(source: string | undefined): string {
+  if (source === "fixture") return "demo fixture";
+  if (source === "scamadvisor") return "ScamAdviser";
+  return source ?? "unknown";
+}
 
 function dollarsToCents(raw: string): number | null {
   const trimmed = raw.trim();
@@ -24,20 +30,18 @@ function centsToDollars(cents: number): string {
   return (cents / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
-function buildSummary(
-  agentName: string,
-  maxCents: number,
-  dailyCents: number,
-  approvalCents: number,
+interface PolicyStatement {
+  active: boolean;
+  merchantPhrase: string;
+  recurringPhrase: string;
+}
+
+function buildStatement(
   allowRecurring: boolean,
   allowedSlugs: string[],
   merchants: MerchantRow[],
   active: boolean,
-  minTrustScore: number,
-): string {
-  if (!active) {
-    return `${agentName} delegation is disabled — no purchases can be authorized.`;
-  }
+): PolicyStatement {
   const trustedCount = allowedSlugs.filter((slug) => {
     const m = merchants.find((x) => x.slug === slug);
     return m?.trusted !== false;
@@ -51,12 +55,92 @@ function buildSummary(
   const recurringPhrase = allowRecurring
     ? "one-time and subscription purchases"
     : "one-time purchases";
-  const approvalPhrase =
-    approvalCents > 0
-      ? ` Purchases above ${formatCents(approvalCents)} require approval.`
-      : " Purchases do not require human approval.";
-  const guardrailPhrase = ` Only websites with trust ≥ ${minTrustScore} (or authorized by you). Jev screens listings for injection and price anomalies; injection triggers the kill switch.`;
-  return `${agentName} can make ${recurringPhrase} from ${merchantPhrase} up to ${formatCents(maxCents)} per transaction and ${formatCents(dailyCents)}/day.${approvalPhrase}${guardrailPhrase}`;
+  return { active, merchantPhrase, recurringPhrase };
+}
+
+function Num({ children }: { children: ReactNode }) {
+  return <span className="font-mono tabular-nums text-accent">{children}</span>;
+}
+
+function Section({
+  eyebrow,
+  title,
+  description,
+  className,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className={cn("rounded-[6px] border border-line bg-surface p-6 sm:p-8", className)}
+    >
+      <div className="mb-6 space-y-2">
+        <Eyebrow>{eyebrow}</Eyebrow>
+        <h2 className="font-display text-2xl font-semibold leading-[0.95] tracking-[-0.045em] text-ink">
+          {title}
+        </h2>
+        {description ? <p className="text-sm text-ink-2">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ToggleRow({
+  id,
+  label,
+  hint,
+  checked,
+  onCheckedChange,
+  ariaLabel,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-t border-line py-4 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="space-y-1">
+        <Label htmlFor={id} className="text-[15px] font-medium text-ink">
+          {label}
+        </Label>
+        <p className="text-xs text-ink-3">{hint}</p>
+      </div>
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} aria-label={ariaLabel} />
+    </div>
+  );
+}
+
+function Field({
+  id,
+  label,
+  hint,
+  children,
+  className,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-2", className)}>
+      <Label htmlFor={id} className="text-xs font-medium uppercase tracking-[0.08em] text-ink-2">
+        {label}
+      </Label>
+      {children}
+      {hint ? <p className="text-xs text-ink-3">{hint}</p> : null}
+    </div>
+  );
 }
 
 const HOSTNAME_RE =
@@ -97,7 +181,9 @@ export function DelegationEditor({ delegation, merchants, agentName }: Delegatio
   const [trustedDomains, setTrustedDomains] = useState<string[]>(
     delegation.trusted_domain_overrides ?? [],
   );
+  const [allowedDomains, setAllowedDomains] = useState<string[]>(delegation.allowed_domains ?? []);
   const [domainDraft, setDomainDraft] = useState("");
+  const [allowedDomainDraft, setAllowedDomainDraft] = useState("");
   const [priceDeny, setPriceDeny] = useState(
     String(delegation.price_anomaly_deny_threshold ?? 0.8),
   );
@@ -123,30 +209,9 @@ export function DelegationEditor({ delegation, merchants, agentName }: Delegatio
       ? minTrustParsed
       : delegation.min_trust_score ?? 95;
 
-  const summary = useMemo(
-    () =>
-      buildSummary(
-        agentName,
-        maxCents,
-        dailyCents,
-        approvalCents,
-        allowRecurring,
-        allowedMerchants,
-        merchants,
-        active,
-        minTrustEffective,
-      ),
-    [
-      agentName,
-      maxCents,
-      dailyCents,
-      approvalCents,
-      allowRecurring,
-      allowedMerchants,
-      merchants,
-      active,
-      minTrustEffective,
-    ],
+  const statement = useMemo(
+    () => buildStatement(allowRecurring, allowedMerchants, merchants, active),
+    [allowRecurring, allowedMerchants, merchants, active],
   );
 
   function addDomain() {
@@ -168,6 +233,50 @@ export function DelegationEditor({ delegation, merchants, agentName }: Delegatio
   function removeDomain(host: string) {
     setTrustedDomains((prev) => prev.filter((d) => d !== host));
   }
+
+  function authorizeDomainFromTrust(domain: string) {
+    const host = domain.trim().toLowerCase();
+    if (!host) return;
+    if (trustedDomains.includes(host)) return;
+    setTrustedDomains((prev) => [...prev, host].sort());
+    setFeedback(null);
+  }
+
+  function addAllowedDomain() {
+    const host = allowedDomainDraft.trim().toLowerCase();
+    if (!host) return;
+    if (!isValidHostname(host)) {
+      setFeedback({ tone: "error", text: "Enter a valid hostname (e.g. acme-api.dev)." });
+      return;
+    }
+    if (allowedDomains.includes(host)) {
+      setAllowedDomainDraft("");
+      return;
+    }
+    setAllowedDomains((prev) => [...prev, host].sort());
+    setAllowedDomainDraft("");
+    setFeedback(null);
+  }
+
+  function removeAllowedDomain(host: string) {
+    setAllowedDomains((prev) => prev.filter((d) => d !== host));
+  }
+
+  function quickAddMerchantDomain(domain: string) {
+    const host = domain.trim().toLowerCase();
+    if (!host || !isValidHostname(host)) return;
+    if (allowedDomains.includes(host)) return;
+    setAllowedDomains((prev) => [...prev, host].sort());
+    setFeedback(null);
+  }
+
+  const merchantDomainsForQuickAdd = useMemo(
+    () =>
+      merchants
+        .map((m) => ({ slug: m.slug, name: m.name, domain: m.domain?.trim().toLowerCase() ?? "" }))
+        .filter((m) => m.domain && isValidHostname(m.domain)),
+    [merchants],
+  );
 
   function toggleMerchant(slug: string, checked: boolean) {
     setAllowedMerchants((prev) =>
@@ -232,6 +341,7 @@ export function DelegationEditor({ delegation, merchants, agentName }: Delegatio
         status: active ? "active" : "disabled",
         min_trust_score,
         trusted_domain_overrides: trustedDomains,
+        allowed_domains: allowedDomains,
         price_anomaly_deny_threshold,
         price_anomaly_review_threshold,
         injection_kill_threshold,
@@ -262,173 +372,276 @@ export function DelegationEditor({ delegation, merchants, agentName }: Delegatio
     }
   }
 
+  const inputClass = "h-11 bg-surface font-mono text-[15px] tabular-nums";
+
   return (
-    <div className="space-y-8">
-      <p className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm leading-relaxed text-foreground/90">
-        {summary}
-      </p>
-
-      <div className="grid gap-6 sm:grid-cols-2">
-        <div className="space-y-2 sm:col-span-2">
-          <Label>Agent</Label>
-          <p className="text-sm font-medium">{agentName}</p>
+    <div className="space-y-6">
+      <section className="rounded-[6px] border border-line bg-surface px-6 py-10 sm:px-10 sm:py-14">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <Eyebrow>Policy in plain words</Eyebrow>
+          <span
+            className={cn(
+              "inline-flex items-center rounded-[4px] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]",
+              active ? "bg-executed-bg text-executed" : "bg-blocked-bg text-blocked",
+            )}
+          >
+            {active ? "Delegation active" : "Delegation disabled"}
+          </span>
         </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="max-tx">Maximum transaction ($)</Label>
-          <Input
-            id="max-tx"
-            type="text"
-            inputMode="decimal"
-            value={maxDollars}
-            onChange={(e) => setMaxDollars(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="daily-limit">Daily spending limit ($)</Label>
-          <Input
-            id="daily-limit"
-            type="text"
-            inputMode="decimal"
-            value={dailyDollars}
-            onChange={(e) => setDailyDollars(e.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="approval-threshold">Require approval above ($)</Label>
-          <Input
-            id="approval-threshold"
-            type="text"
-            inputMode="decimal"
-            value={approvalDollars}
-            onChange={(e) => setApprovalDollars(e.target.value)}
-          />
-        </div>
-
-        <div className="flex items-center justify-between rounded-md border border-border px-4 py-3 sm:col-span-2">
-          <div>
-            <Label htmlFor="recurring">Subscriptions</Label>
-            <p className="text-xs text-muted-foreground">Allow recurring merchant plans</p>
-          </div>
-          <Switch
-            id="recurring"
-            checked={allowRecurring}
-            onCheckedChange={setAllowRecurring}
-            aria-label="Allow subscriptions"
-          />
-        </div>
-
-        <div className="flex items-center justify-between rounded-md border border-border px-4 py-3 sm:col-span-2">
-          <div>
-            <Label htmlFor="active">Active</Label>
-            <p className="text-xs text-muted-foreground">When off, all agent purchases are denied</p>
-          </div>
-          <Switch
-            id="active"
-            checked={active}
-            onCheckedChange={setActive}
-            aria-label="Delegation active"
-          />
-        </div>
-      </div>
-
-      <div className="space-y-4 rounded-lg border border-border p-4">
-        <div>
-          <h2 className="text-sm font-semibold tracking-tight">Guardrails</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Deterministic checks on merchant trust and listing risk before policy limits apply.
+        {statement.active ? (
+          <p className="font-display text-4xl font-semibold leading-[0.98] tracking-[-0.045em] text-ink sm:text-5xl lg:text-6xl">
+            {agentName} can spend up to <Num>{formatCents(maxCents)}</Num> per purchase and{" "}
+            <Num>{formatCents(dailyCents)}</Num> a day on {statement.recurringPhrase} from{" "}
+            <span className="text-accent">{statement.merchantPhrase}</span>.
           </p>
-        </div>
+        ) : (
+          <p className="font-display text-4xl font-semibold leading-[0.98] tracking-[-0.045em] text-ink sm:text-5xl lg:text-6xl">
+            {agentName} delegation is <span className="text-blocked">disabled</span> — no purchases
+            can be authorized.
+          </p>
+        )}
+        {statement.active ? (
+          <p className="mt-8 max-w-3xl text-base leading-relaxed text-ink-2">
+            {approvalCents > 0 ? (
+              <>
+                Purchases above <Num>{formatCents(approvalCents)}</Num> require your approval.
+              </>
+            ) : (
+              <>Purchases do not require human approval.</>
+            )}{" "}
+            Only websites with trust ≥ <Num>{minTrustEffective}</Num> (or authorized by you). Jev
+            screens listings for injection and price anomalies; injection triggers the kill switch.
+          </p>
+        ) : null}
+      </section>
 
-        <div className="grid gap-6 sm:grid-cols-2">
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="min-trust">Minimum website trust score</Label>
-            <Input
-              id="min-trust"
-              type="number"
-              min={0}
-              max={100}
-              value={minTrustScore}
-              onChange={(e) => setMinTrustScore(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              ScamAdvisor-style trust score; unscored sites are denied.
-            </p>
-          </div>
-
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="domain-override">Human-authorized websites</Label>
-            <div className="flex flex-wrap gap-2">
-              {trustedDomains.map((host) => (
-                <Badge key={host} variant="sky" className="gap-1 font-mono normal-case tracking-normal">
-                  {host}
-                  <button
-                    type="button"
-                    className="ml-1 rounded px-0.5 text-sky-200/80 hover:text-foreground"
-                    aria-label={`Remove ${host}`}
-                    onClick={() => removeDomain(host)}
-                  >
-                    ×
-                  </button>
-                </Badge>
-              ))}
-            </div>
-            <div className="flex gap-2">
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Section
+          eyebrow="Limits"
+          title="Spending limits"
+          description={`Hard ceilings for ${agentName}. Policy uses these — not what the model claims.`}
+        >
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field id="max-tx" label="Maximum transaction ($)">
               <Input
-                id="domain-override"
-                placeholder="merchant.example.com"
-                value={domainDraft}
-                onChange={(e) => setDomainDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addDomain();
-                  }
-                }}
+                id="max-tx"
+                type="text"
+                inputMode="decimal"
+                className={inputClass}
+                value={maxDollars}
+                onChange={(e) => setMaxDollars(e.target.value)}
               />
-              <Button type="button" variant="outline" onClick={addDomain}>
-                Add domain
-              </Button>
-            </div>
+            </Field>
+            <Field id="daily-limit" label="Daily spending limit ($)">
+              <Input
+                id="daily-limit"
+                type="text"
+                inputMode="decimal"
+                className={inputClass}
+                value={dailyDollars}
+                onChange={(e) => setDailyDollars(e.target.value)}
+              />
+            </Field>
+            <Field
+              id="approval-threshold"
+              label="Require approval above ($)"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="approval-threshold"
+                type="text"
+                inputMode="decimal"
+                className={inputClass}
+                value={approvalDollars}
+                onChange={(e) => setApprovalDollars(e.target.value)}
+              />
+            </Field>
           </div>
+        </Section>
 
-          <div className="space-y-2">
-            <Label htmlFor="price-deny">Price anomaly: deny ≥</Label>
-            <Input
-              id="price-deny"
-              type="text"
-              inputMode="decimal"
-              value={priceDeny}
-              onChange={(e) => setPriceDeny(e.target.value)}
+        <Section eyebrow="Status" title="Delegation" description={`Agent: ${agentName}`}>
+          <div>
+            <ToggleRow
+              id="active"
+              label="Active"
+              hint="When off, all agent purchases are denied"
+              checked={active}
+              onCheckedChange={setActive}
+              ariaLabel="Delegation active"
+            />
+            <ToggleRow
+              id="recurring"
+              label="Subscriptions"
+              hint="Allow recurring merchant plans"
+              checked={allowRecurring}
+              onCheckedChange={setAllowRecurring}
+              ariaLabel="Allow subscriptions"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="price-review">Price anomaly: review ≥</Label>
-            <Input
-              id="price-review"
-              type="text"
-              inputMode="decimal"
-              value={priceReview}
-              onChange={(e) => setPriceReview(e.target.value)}
+        </Section>
+
+        <Section
+          eyebrow="Guardrails"
+          title="Website trust"
+          description="Deterministic checks on merchant trust before policy limits apply."
+        >
+          <div className="space-y-5">
+            <Field
+              id="min-trust"
+              label="Minimum website trust score"
+              hint="ScamAdvisor-style trust score; unscored sites are denied."
+            >
+              <Input
+                id="min-trust"
+                type="number"
+                min={0}
+                max={100}
+                className={inputClass}
+                value={minTrustScore}
+                onChange={(e) => setMinTrustScore(e.target.value)}
+              />
+            </Field>
+
+            <WebsiteTrustCheck
+              minTrustScore={minTrustEffective}
+              onAuthorize={authorizeDomainFromTrust}
             />
+
+            <p className="text-sm text-ink-2">
+              Live ScamAdviser trust score. Sites below your minimum are denied unless you
+              authorize them.
+            </p>
+
+            <Field id="domain-override" label="Human-authorized websites">
+              {trustedDomains.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {trustedDomains.map((host) => (
+                    <span
+                      key={host}
+                      className="inline-flex items-center gap-1 rounded-[4px] bg-accent-wash py-1 pl-2 pr-1 font-mono text-xs text-accent"
+                    >
+                      {host}
+                      <button
+                        type="button"
+                        className="rounded-[3px] p-0.5 text-accent/70 hover:bg-accent-soft hover:text-accent"
+                        aria-label={`Remove ${host}`}
+                        onClick={() => removeDomain(host)}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-ink-3">No overrides — trust score alone decides.</p>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  id="domain-override"
+                  placeholder="merchant.example.com"
+                  className="h-11 bg-surface font-mono text-sm"
+                  value={domainDraft}
+                  onChange={(e) => setDomainDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addDomain();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={addDomain}
+                  className="h-11 shrink-0 rounded-[4px] border border-line bg-surface px-4 text-sm font-medium text-ink transition-colors hover:border-ink"
+                >
+                  Add domain
+                </button>
+              </div>
+            </Field>
+
+            {hasRequireVerified ? (
+              <div className="border-t border-line pt-5">
+                <ToggleRow
+                  id="require-verified"
+                  label="Require verified merchant"
+                  hint="Deny proposals from merchants not marked verified in the registry"
+                  checked={requireVerifiedMerchant}
+                  onCheckedChange={setRequireVerifiedMerchant}
+                  ariaLabel="Require verified merchant"
+                />
+              </div>
+            ) : null}
           </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="injection-kill">Prompt-injection kill threshold</Label>
-            <Input
+        </Section>
+
+        <Section
+          eyebrow="Jev"
+          title="Listing risk"
+          description="Jev scores each listing 0–1 for price anomalies and prompt injection."
+        >
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field id="price-deny" label="Price anomaly: deny ≥">
+              <Input
+                id="price-deny"
+                type="text"
+                inputMode="decimal"
+                className={inputClass}
+                value={priceDeny}
+                onChange={(e) => setPriceDeny(e.target.value)}
+              />
+            </Field>
+            <Field id="price-review" label="Price anomaly: review ≥">
+              <Input
+                id="price-review"
+                type="text"
+                inputMode="decimal"
+                className={inputClass}
+                value={priceReview}
+                onChange={(e) => setPriceReview(e.target.value)}
+              />
+            </Field>
+            <Field
               id="injection-kill"
-              type="text"
-              inputMode="decimal"
-              value={injectionKill}
-              onChange={(e) => setInjectionKill(e.target.value)}
-            />
+              label="Prompt-injection kill threshold"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="injection-kill"
+                type="text"
+                inputMode="decimal"
+                className={inputClass}
+                value={injectionKill}
+                onChange={(e) => setInjectionKill(e.target.value)}
+              />
+            </Field>
           </div>
-
-          <div className="flex items-center justify-between rounded-md border border-border px-4 py-3 sm:col-span-2">
-            <div>
-              <Label htmlFor="kill-switch">Kill switch enabled</Label>
-              <p className="text-xs text-muted-foreground">
-                Suspends the agent when injection or crypto exfiltration signals exceed threshold
-              </p>
+          <div
+            className={cn(
+              "mt-6 flex items-center justify-between gap-4 rounded-[6px] p-4",
+              killSwitchEnabled ? "bg-inverse text-white" : "border border-line bg-canvas",
+            )}
+          >
+            <div className="flex items-start gap-3">
+              <ShieldAlert
+                className={cn(
+                  "mt-0.5 size-5 shrink-0",
+                  killSwitchEnabled ? "text-blocked" : "text-ink-3",
+                )}
+              />
+              <div className="space-y-1">
+                <Label
+                  htmlFor="kill-switch"
+                  className={cn(
+                    "text-[15px] font-medium",
+                    killSwitchEnabled ? "text-white" : "text-ink",
+                  )}
+                >
+                  Kill switch enabled
+                </Label>
+                <p className={cn("text-xs", killSwitchEnabled ? "text-white/60" : "text-ink-3")}>
+                  Suspends the agent when injection or crypto exfiltration signals exceed threshold
+                </p>
+              </div>
             </div>
             <Switch
               id="kill-switch"
@@ -437,72 +650,180 @@ export function DelegationEditor({ delegation, merchants, agentName }: Delegatio
               aria-label="Kill switch enabled"
             />
           </div>
-
-          {hasRequireVerified ? (
-            <div className="flex items-center justify-between rounded-md border border-border px-4 py-3 sm:col-span-2">
-              <div>
-                <Label htmlFor="require-verified">Require verified merchant</Label>
-                <p className="text-xs text-muted-foreground">
-                  Deny proposals from merchants not marked verified in the registry
-                </p>
-              </div>
-              <Switch
-                id="require-verified"
-                checked={requireVerifiedMerchant}
-                onCheckedChange={setRequireVerifiedMerchant}
-                aria-label="Require verified merchant"
-              />
-            </div>
-          ) : null}
-        </div>
+        </Section>
       </div>
 
-      <div className="space-y-3">
-        <Label>Allowed merchants</Label>
-        <ul className="space-y-2 rounded-md border border-border p-3">
+        <Section
+          eyebrow="Websites"
+          title="Allowed websites"
+          description="Leave empty to allow any website that passes the trust and merchant rules. If set, agents can only buy from these websites."
+        >
+          <div className="space-y-4">
+            {allowedDomains.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {allowedDomains.map((host) => (
+                  <span
+                    key={host}
+                    className="inline-flex items-center gap-1 rounded-[4px] bg-accent-wash py-1 pl-2 pr-1 font-mono text-xs text-accent"
+                  >
+                    {host}
+                    <button
+                      type="button"
+                      className="rounded-[3px] p-0.5 text-accent/70 hover:bg-accent-soft hover:text-accent"
+                      aria-label={`Remove ${host}`}
+                      onClick={() => removeAllowedDomain(host)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-ink-3">No website restriction — trust and merchant rules apply.</p>
+            )}
+            <div className="flex gap-2">
+              <Input
+                id="allowed-domain"
+                placeholder="merchant.example.com"
+                className="h-11 bg-surface font-mono text-sm"
+                value={allowedDomainDraft}
+                onChange={(e) => setAllowedDomainDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addAllowedDomain();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={addAllowedDomain}
+                className="h-11 shrink-0 rounded-[4px] border border-line bg-surface px-4 text-sm font-medium text-ink transition-colors hover:border-ink"
+              >
+                Add domain
+              </button>
+            </div>
+            {merchantDomainsForQuickAdd.length > 0 ? (
+              <div className="space-y-2 border-t border-line pt-4">
+                <p className="text-xs font-medium uppercase tracking-[0.08em] text-ink-2">
+                  Quick add from catalog
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {merchantDomainsForQuickAdd.map((m) => (
+                    <button
+                      key={m.slug}
+                      type="button"
+                      disabled={allowedDomains.includes(m.domain)}
+                      onClick={() => quickAddMerchantDomain(m.domain)}
+                      className={cn(
+                        "rounded-[4px] border border-line px-3 py-1.5 text-left text-xs transition-colors",
+                        allowedDomains.includes(m.domain)
+                          ? "cursor-not-allowed bg-canvas text-ink-3"
+                          : "bg-surface text-ink hover:border-accent hover:text-accent",
+                      )}
+                    >
+                      <span className="font-medium">{m.name}</span>
+                      <span className="mt-0.5 block font-mono text-[11px] text-ink-3">{m.domain}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </Section>
+
+        <Section
+          eyebrow="Allowlist"
+          title="Allowed merchants"
+          description={`${allowedMerchants.length} of ${merchants.length} selected. Sites must also clear trust ≥ ${minTrustEffective}.`}
+        >
+        <ul className="grid grid-cols-2 gap-px overflow-hidden rounded-[6px] border border-line bg-line sm:grid-cols-3 lg:grid-cols-4">
           {merchants.map((m) => {
             const checked = allowedMerchants.includes(m.slug);
             return (
-              <li key={m.id} className="flex items-center gap-3">
-                <Checkbox
+              <li key={m.id} className="bg-surface">
+                <button
+                  type="button"
+                  role="checkbox"
                   id={`merchant-${m.slug}`}
-                  checked={checked}
-                  onCheckedChange={(c) => toggleMerchant(m.slug, c)}
+                  aria-checked={checked}
                   aria-label={`Allow ${m.name}`}
-                />
-                <label
-                  htmlFor={`merchant-${m.slug}`}
-                  className="flex flex-1 cursor-pointer items-center gap-2 text-sm"
+                  onClick={() => toggleMerchant(m.slug, !checked)}
+                  className={cn(
+                    "group relative flex h-full min-h-32 w-full flex-col justify-between gap-4 p-5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+                    checked ? "bg-accent-wash" : "hover:bg-canvas",
+                  )}
                 >
-                  <span>{m.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">{m.slug}</span>
-                  {!m.trusted ? (
-                    <Badge variant="amber" className="normal-case tracking-normal">
-                      untrusted
-                    </Badge>
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute right-4 top-4 inline-flex size-5 items-center justify-center rounded-[4px] border transition-colors",
+                      checked ? "border-accent bg-accent text-white" : "border-line bg-surface",
+                    )}
+                  >
+                    {checked ? <Check className="size-3.5" /> : null}
+                  </span>
+                  <span className="space-y-1 pr-8">
+                    <span
+                      className={cn(
+                        "block font-display text-xl font-semibold leading-none tracking-[-0.03em] transition-colors",
+                        checked ? "text-ink" : "text-ink-3 group-hover:text-ink-2",
+                      )}
+                    >
+                      {m.name}
+                    </span>
+                    <span className="block font-mono text-xs text-ink-3">{m.slug}</span>
+                    {m.trust_score != null ? (
+                      <span className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono text-[11px] text-ink-2">trust {m.trust_score}</span>
+                        <span className="rounded-[4px] bg-[#F2F2F2] px-1.5 py-0.5 text-[10px] text-ink-3">
+                          {merchantTrustSourceLabel(m.trust_score_source)}
+                        </span>
+                      </span>
+                    ) : null}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                  {m.verified ? (
+                    <span className="inline-flex w-fit items-center gap-1 rounded-[4px] bg-executed-bg px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-executed">
+                      <BadgeCheck className="size-3" />
+                      Verified
+                    </span>
                   ) : null}
-                </label>
+                  {m.trusted ? (
+                    <span className="inline-flex w-fit items-center gap-1 rounded-[4px] bg-approved-bg px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-approved">
+                      <BadgeCheck className="size-3" />
+                      Trusted
+                    </span>
+                  ) : (
+                    <span className="inline-flex w-fit items-center rounded-[4px] bg-waiting-bg px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-waiting">
+                      Untrusted
+                    </span>
+                  )}
+                  </div>
+                </button>
               </li>
             );
           })}
         </ul>
-      </div>
+      </Section>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" disabled={saving} onClick={() => void save()}>
+      <div className="flex flex-wrap items-center gap-4 rounded-[6px] border border-line bg-surface p-6">
+        <ArrowButton type="button" disabled={saving} onClick={() => void save()}>
           {saving ? <Loader2 className="size-4 animate-spin" /> : null}
           Save delegation
-        </Button>
+        </ArrowButton>
         {feedback ? (
           <p
             className={cn(
-              "text-sm",
-              feedback.tone === "success" ? "text-emerald-400" : "text-red-400",
+              "text-sm font-medium",
+              feedback.tone === "success" ? "text-executed" : "text-blocked",
             )}
           >
             {feedback.text}
           </p>
-        ) : null}
+        ) : (
+          <p className="text-sm text-ink-3">The statement above previews your edits before you save.</p>
+        )}
       </div>
     </div>
   );

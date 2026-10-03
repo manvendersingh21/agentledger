@@ -118,6 +118,8 @@ export interface GuardrailPolicyRow {
   price_anomaly_review_threshold?: number | string | null;
   injection_kill_threshold?: number | string | null;
   kill_switch_enabled?: boolean | null;
+  require_verified_merchant?: boolean | null;
+  allowed_domains?: string[] | null;
 }
 
 export async function getAgentStatus(db: SupabaseClient, agentId: string): Promise<"active" | "disabled" | "suspended"> {
@@ -128,6 +130,20 @@ export async function getAgentStatus(db: SupabaseClient, agentId: string): Promi
 }
 
 export function runGuardrails(
+  agentStatus: "active" | "disabled" | "suspended",
+  product: ProductRow,
+  policy: GuardrailPolicyRow | null,
+  risk: RiskSignals | null,
+): GuardrailResult {
+  const result = evaluateGuardrailsFor(agentStatus, product, policy, risk);
+  // Verified Merchant Registry: when the human requires it, unverified merchants are denied.
+  const verified = product.merchants.verified === true;
+  result.checks.merchant_verified = { passed: verified || !policy?.require_verified_merchant, required: policy?.require_verified_merchant === true, verified };
+  if (policy?.require_verified_merchant && !verified) result.violations.push("MERCHANT_NOT_VERIFIED");
+  return result;
+}
+
+function evaluateGuardrailsFor(
   agentStatus: "active" | "disabled" | "suspended",
   product: ProductRow,
   policy: GuardrailPolicyRow | null,
@@ -149,6 +165,7 @@ export function runGuardrails(
       priceAnomalyReviewThreshold: num(policy?.price_anomaly_review_threshold, 0.5),
       injectionKillThreshold: num(policy?.injection_kill_threshold, 0.9),
       killSwitchEnabled: policy?.kill_switch_enabled ?? true,
+      allowedDomains: policy?.allowed_domains ?? [],
     },
     risk: risk ? { promptInjection: risk.promptInjection, cryptoExfiltration: risk.cryptoExfiltration, priceAnomaly: risk.priceAnomaly } : null,
   });

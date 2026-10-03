@@ -15,23 +15,25 @@ export function CodeBlock({ value, title, tone = "neutral", className }: CodeBlo
     <div
       className={cn(
         "overflow-hidden rounded-md border text-sm",
-        tone === "danger"
-          ? "border-red-500/30 bg-red-500/5"
-          : "border-border bg-muted/40",
+        tone === "danger" ? "border-blocked/30 bg-blocked-bg/50" : "border-line bg-[#F7F7F7]",
         className,
       )}
     >
       {title ? (
         <div
           className={cn(
-            "border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground",
-            tone === "danger" ? "border-red-500/20" : "border-border",
+            "flex items-center gap-2 border-b px-3 py-2 font-mono text-[11px] font-medium uppercase tracking-[0.1em]",
+            tone === "danger" ? "border-blocked/20 text-blocked" : "border-line text-ink-3",
           )}
         >
+          <span
+            aria-hidden
+            className={cn("inline-block size-1.5", tone === "danger" ? "bg-blocked" : "bg-accent")}
+          />
           {title}
         </div>
       ) : null}
-      <pre className="max-h-80 overflow-auto p-3 font-mono text-xs leading-relaxed text-foreground/90">
+      <pre className="max-h-80 overflow-auto p-3.5 font-mono text-xs leading-relaxed text-ink">
         <code>{text}</code>
       </pre>
     </div>

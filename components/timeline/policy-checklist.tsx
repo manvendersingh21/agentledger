@@ -198,7 +198,7 @@ export interface PolicyChecklistProps {
 export function PolicyChecklist({ decision, merchantDisplayName, className }: PolicyChecklistProps) {
   if (!decision) {
     return (
-      <p className={cn("text-xs text-muted-foreground", className)}>No policy evaluation recorded.</p>
+      <p className={cn("text-xs text-ink-3", className)}>No policy evaluation recorded.</p>
     );
   }
 
@@ -209,23 +209,25 @@ export function PolicyChecklist({ decision, merchantDisplayName, className }: Po
   ];
 
   return (
-    <ul className={cn("space-y-2", className)}>
+    <ul className={cn("divide-y divide-line rounded-[4px] border border-line bg-surface", className)}>
       {rows.map((row) => (
-        <li key={row.label} className="flex gap-2 text-sm">
+        <li key={row.label} className="flex gap-3 px-3 py-2.5 text-sm">
           <span
             className={cn(
-              "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
-              row.passed
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-                : "border-red-500/40 bg-red-500/10 text-red-400",
+              "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[3px]",
+              row.passed ? "bg-executed-bg text-executed" : "bg-blocked-bg text-blocked",
             )}
             aria-hidden
           >
-            {row.passed ? <Check className="size-2.5" /> : <X className="size-2.5" />}
+            {row.passed ? (
+              <Check className="size-3" strokeWidth={3} />
+            ) : (
+              <X className="size-3" strokeWidth={3} />
+            )}
           </span>
           <div className="min-w-0">
-            <p className="font-medium text-foreground/90">{row.label}</p>
-            {row.detail ? <p className="text-xs text-muted-foreground">{row.detail}</p> : null}
+            <p className="font-medium text-ink">{row.label}</p>
+            {row.detail ? <p className="font-mono text-xs text-ink-2">{row.detail}</p> : null}
           </div>
         </li>
       ))}

@@ -111,6 +111,7 @@ export interface DelegationRow {
   injection_kill_threshold?: number;
   kill_switch_enabled?: boolean;
   require_verified_merchant?: boolean;
+  allowed_domains?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -132,6 +133,10 @@ export interface MerchantRow {
   slug: string;
   name: string;
   trusted: boolean;
+  domain?: string | null;
+  trust_score?: number | null;
+  trust_score_source?: string;
+  verified?: boolean;
 }
 
 export interface PendingApproval {

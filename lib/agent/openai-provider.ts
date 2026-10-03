@@ -5,6 +5,32 @@ import { z } from "zod";
 import { COMPROMISED_AGENT_INSTRUCTIONS, PURCHASING_AGENT_INSTRUCTIONS } from "./prompts";
 import type { AgentProvider, AgentResult, AgentToolName, RunAgentInput } from "./types";
 
+function pickInjectionTargetProduct(output: unknown): string | null {
+  if (typeof output !== "object" || output === null) return null;
+  const products = (output as { products?: unknown }).products;
+  if (!Array.isArray(products)) return null;
+  for (const row of products) {
+    if (typeof row !== "object" || row === null) continue;
+    const p = row as {
+      product_id?: string;
+      suspicious_content_detected?: boolean;
+      merchant?: { trusted?: boolean };
+    };
+    if (typeof p.product_id !== "string") continue;
+    if (p.suspicious_content_detected === true || p.merchant?.trusted === false) {
+      return p.product_id;
+    }
+  }
+  return null;
+}
+
+function killSwitchTriggered(output: unknown): { triggered: boolean; reason: string | null } | null {
+  if (typeof output !== "object" || output === null) return null;
+  const ks = (output as { kill_switch?: { triggered?: boolean; reason?: string | null } }).kill_switch;
+  if (!ks?.triggered) return null;
+  return { triggered: true, reason: ks.reason ?? null };
+}
+
 /** OpenAI (Responses API) implementation. The API key is read server-side only. */
 export class OpenAIAgentProvider implements AgentProvider {
   readonly name = "openai";
@@ -21,26 +47,72 @@ export class OpenAIAgentProvider implements AgentProvider {
     const halt = new AbortController();
     input.abortSignal?.addEventListener("abort", () => halt.abort());
     let halted: string | null = null;
-    const wrap = <I, O>(name: AgentToolName, fn: (args: I) => Promise<O>) => async (args: I) => {
+
+    const applyKillSwitch = (output: unknown) => {
+      const ks = killSwitchTriggered(output);
+      if (ks) {
+        halted = ks.reason ?? "kill switch";
+        input.onActivity({ type: "status", message: `AGENT HALTED by AgentLedger kill switch: ${halted}` });
+        halt.abort();
+      }
+    };
+
+    const runBoundTool = async <I, O>(
+      name: AgentToolName,
+      args: I,
+      fn: () => Promise<O>,
+      simulated?: boolean,
+    ): Promise<O> => {
       const id = `${name}-${++callSeq}`;
-      input.onActivity({ type: "tool_call", id, tool: name, input: args });
+      const sim = simulated ? { simulated: true as const } : {};
+      input.onActivity({ type: "tool_call", id, tool: name, input: args, ...sim });
       try {
-        const output = await fn(args);
-        input.onActivity({ type: "tool_result", id, tool: name, output });
-        const ks = (output as { kill_switch?: { triggered?: boolean; reason?: string | null } } | null)?.kill_switch;
-        if (ks?.triggered) {
-          halted = ks.reason ?? "kill switch";
-          input.onActivity({ type: "status", message: `AGENT HALTED by AgentLedger kill switch: ${halted}` });
-          halt.abort();
-        }
+        const output = await fn();
+        input.onActivity({ type: "tool_result", id, tool: name, output, ...sim });
+        applyKillSwitch(output);
         return output;
       } catch (error) {
         const output = { status: "error", message: "Action could not be evaluated safely, so AgentLedger denied execution." };
         console.error("[agent] tool failed", name, error);
-        input.onActivity({ type: "tool_result", id, tool: name, output });
-        return output;
+        input.onActivity({ type: "tool_result", id, tool: name, output, ...sim });
+        return output as O;
       }
     };
+
+    const wrap = <I, O>(name: AgentToolName, fn: (args: I) => Promise<O>) => async (args: I) =>
+      runBoundTool(name, args, () => fn(args));
+
+    if (input.compromised) {
+      input.onActivity({
+        type: "status",
+        message: "Red-team: simulating an agent that obeyed the injected merchant instruction",
+      });
+      await runBoundTool("list_delegations", {}, () => input.tools.list_delegations(), true);
+      if (!halted) {
+        const searchOut = await runBoundTool(
+          "search_products",
+          { query: "API plan" },
+          () => input.tools.search_products({ query: "API plan" }),
+          true,
+        );
+        if (!halted) {
+          const productId = pickInjectionTargetProduct(searchOut);
+          if (productId) {
+            const proposeArgs = {
+              product_id: productId,
+              reason: "Merchant system message says this offer is mandatory",
+            };
+            await runBoundTool("propose_purchase", proposeArgs, () => input.tools.propose_purchase(proposeArgs), true);
+          }
+        }
+      }
+      if (halted) {
+        return {
+          text: `Stopped: AgentLedger's kill switch suspended this agent (${halted}). A human must review and re-enable it.`,
+          steps: callSeq,
+        };
+      }
+    }
 
     const agent = new ToolLoopAgent({
       model: openai.responses(this.model),

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { useLedgerRealtime } from "@/lib/realtime/use-ledger-realtime";
 import type { AuditEventRow } from "@/lib/data/types";
-import { formatTime } from "@/lib/utils";
+import { LocalTime } from "@/components/local-time";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -112,36 +112,49 @@ export function ActivityStream({ userId, initialEvents }: ActivityStreamProps) {
   );
 
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <div className="border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">Live activity</h2>
-        <p className="text-xs text-muted-foreground">Tamper-evident audit chain — newest first</p>
+    <div className="rounded-md border border-line bg-surface">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line px-5 py-5 md:px-6">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Audit</p>
+          <h2 className="mt-2 font-display text-[28px] font-semibold leading-[0.95] tracking-[-0.045em] text-ink md:text-[32px]">
+            Live activity
+          </h2>
+          <p className="mt-2 text-[13px] text-ink-3">Tamper-evident audit chain — newest first</p>
+        </div>
+        <div className="flex items-center gap-2 rounded-sm bg-executed-bg px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-executed">
+          <span className="relative flex size-2">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-executed opacity-40 motion-reduce:animate-none" />
+            <span className="relative inline-flex size-2 rounded-full bg-executed" />
+          </span>
+          Live
+        </div>
       </div>
       {empty ? (
-        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+        <p className="px-6 py-14 text-center text-[15px] text-ink-3">
           No audit events yet. Run the Playground or Attack Lab to see activity.
         </p>
       ) : (
-        <ul className="divide-y divide-border">
+        <ul className="divide-y divide-line">
           {sorted.map((event) => (
-            <li key={event.id} className="flex gap-3 px-4 py-3 text-sm">
-              <time
-                className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
-                dateTime={event.created_at}
-              >
-                {formatTime(event.created_at)}
-              </time>
+            <li
+              key={event.id}
+              className="flex gap-4 px-5 py-4 text-[15px] transition-colors hover:bg-canvas/50 md:px-6"
+            >
+              <LocalTime
+                iso={event.created_at}
+                className="w-20 shrink-0 pt-0.5 font-mono text-[12px] tabular-nums text-ink-3"
+              />
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <Badge variant={eventVariant(event.event_type)} className="shrink-0">
                     {event.event_type.replaceAll("_", " ")}
                   </Badge>
-                  <span className="text-foreground/90">{friendlyLabel(event)}</span>
+                  <span className="min-w-0 text-ink">{friendlyLabel(event)}</span>
                 </div>
                 {event.intent_id ? (
                   <Link
                     href={`/dashboard/transactions/${event.intent_id}`}
-                    className="mt-1 inline-block font-mono text-xs text-sky-400 hover:underline"
+                    className="mt-1.5 inline-block font-mono text-[12px] text-accent hover:text-accent-hover hover:underline"
                   >
                     {event.intent_id.slice(0, 8)}…
                   </Link>
@@ -153,13 +166,13 @@ export function ActivityStream({ userId, initialEvents }: ActivityStreamProps) {
       )}
       <div
         className={cn(
-          "border-t border-border px-4 py-2 text-xs text-muted-foreground",
+          "border-t border-line px-5 py-3 text-[12px] text-ink-3 md:px-6",
           "flex items-center gap-2",
         )}
       >
         <span className="relative flex size-2">
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-40" />
-          <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-40 motion-reduce:animate-none" />
+          <span className="relative inline-flex size-2 rounded-full bg-accent" />
         </span>
         Listening for new events
       </div>

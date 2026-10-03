@@ -259,6 +259,10 @@ export function describeViolation(code: AnyViolation, decision?: AuthorizationDe
       return "merchant content was flagged as prompt injection by the Jev guardrail";
     case "CRYPTO_EXFILTRATION_DETECTED":
       return "merchant content tries to divert funds (crypto/off-platform payment)";
+    case "MERCHANT_NOT_VERIFIED":
+      return "merchant is not verified in the AgentLedger registry, and your delegation requires verified merchants";
+    case "WEBSITE_NOT_ALLOWED":
+      return `website ${String(guard?.checks?.allowed_websites?.domain ?? "?")} is not in your allowed websites list`;
     case "PRICE_ANOMALY":
       return "price is far above typical market pricing for this product (Jev price check)";
     default:

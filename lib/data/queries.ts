@@ -31,7 +31,10 @@ export async function getDelegation(): Promise<DelegationRow | null> {
 
 export async function getMerchants(): Promise<MerchantRow[]> {
   const db = await createClient();
-  const { data } = await db.from("merchants").select("id, slug, name, trusted").order("name");
+  const { data } = await db
+    .from("merchants")
+    .select("id, slug, name, trusted, domain, trust_score, trust_score_source, verified")
+    .order("name");
   return (data ?? []) as MerchantRow[];
 }
 

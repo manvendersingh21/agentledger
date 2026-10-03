@@ -37,28 +37,38 @@ export function RetryButton({ intentId }: { intentId: string }) {
 
   return (
     <div className="space-y-3">
-      <Button type="button" variant="outline" size="sm" onClick={simulateRetry} disabled={loading}>
+      <Button
+        type="button"
+        variant="outline"
+        size="md"
+        className="w-full"
+        onClick={simulateRetry}
+        disabled={loading}
+      >
         {loading ? "Simulating…" : "Simulate retry"}
       </Button>
-      {error ? <p className="text-xs text-red-400">{error}</p> : null}
+      {error ? <p className="text-xs text-blocked">{error}</p> : null}
       {result?.status === "duplicate" ? (
         <div
           className={cn(
-            "rounded-md border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-sm text-violet-200",
+            "rounded-[4px] border border-duplicate/30 bg-duplicate-bg px-3.5 py-3 text-sm text-ink",
           )}
           role="status"
         >
-          <p className="font-semibold uppercase tracking-wide text-violet-400">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-duplicate">
             Duplicate execution blocked
           </p>
-          <p className="mt-1 text-xs">
-            Additional charges: {formatCents(result.additional_charge_cents)}
+          <p className="mt-1.5 text-xs text-ink-2">
+            Additional charges:{" "}
+            <span className="font-mono font-semibold text-ink">
+              {formatCents(result.additional_charge_cents)}
+            </span>
           </p>
-          {result.message ? <p className="mt-1 text-xs text-muted-foreground">{result.message}</p> : null}
+          {result.message ? <p className="mt-1 text-xs text-ink-2">{result.message}</p> : null}
         </div>
       ) : null}
       {result && result.status !== "duplicate" ? (
-        <p className="text-xs text-muted-foreground">Result: {result.status}</p>
+        <p className="font-mono text-xs text-ink-2">Result: {result.status}</p>
       ) : null}
     </div>
   );

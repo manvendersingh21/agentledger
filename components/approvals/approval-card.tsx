@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, CheckCircle2, Loader2, X } from "lucide-react";
 import type { PendingApproval } from "@/lib/data/types";
 import type { ExecuteResult } from "@/lib/domain/pipeline";
 import { Button } from "@/components/ui/button";
+import { ArrowButton } from "@/components/brand/arrow-button";
 import { cn, formatCents } from "@/lib/utils";
 
 interface ApprovalResolveResponse {
@@ -14,6 +15,8 @@ interface ApprovalResolveResponse {
   intent_status: string;
   execution?: ExecuteResult;
 }
+
+export type { ApprovalResolveResponse };
 
 interface ChecklistItem {
   ok: boolean;
@@ -75,7 +78,7 @@ function buildPolicyChecklist(item: PendingApproval): ChecklistItem[] {
 
 export interface ApprovalCardProps {
   item: PendingApproval;
-  onResolved?: () => void;
+  onResolved?: (outcome: ApprovalResolveResponse) => void;
 }
 
 export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
@@ -111,7 +114,7 @@ export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
         return;
       }
       setOutcome(body);
-      onResolved?.();
+      onResolved?.(body);
     } catch {
       setError("Network error. Try again.");
     } finally {
@@ -124,102 +127,160 @@ export function ApprovalCard({ item, onResolved }: ApprovalCardProps) {
   return (
     <article
       className={cn(
-        "rounded-lg border border-amber-500/40 bg-card shadow-sm transition-all duration-300 ease-out",
+        "overflow-hidden rounded-[6px] border bg-surface transition-all duration-300 ease-out",
+        executed ? "border-executed/40" : "border-line",
         mounted ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
       )}
     >
-      <div className="space-y-4 p-4 md:p-5">
-        <header className="space-y-1">
-          <p className="text-sm font-medium leading-snug">
-            <span className="text-foreground">{agentName}</span>
-            <span className="text-muted-foreground"> wants to spend </span>
-            <span className="font-mono text-foreground">{formatCents(intent.amount_cents, intent.currency)}</span>
+      <div className="space-y-5 p-5 md:p-6">
+        <header className="space-y-3">
+          <p
+            className={cn(
+              "flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em]",
+              executed
+                ? "text-executed"
+                : outcome?.approval_status === "denied"
+                  ? "text-ink-2"
+                  : "text-waiting",
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block size-1.5 rounded-full",
+                executed
+                  ? "bg-executed"
+                  : outcome?.approval_status === "denied"
+                    ? "bg-ink-3"
+                    : "animate-pulse bg-waiting",
+              )}
+              aria-hidden
+            />
+            {executed ? "Executed" : outcome?.approval_status === "denied" ? "Denied" : "Waiting for you"}
+          </p>
+          <p className="text-[15px] leading-snug text-ink-2">
+            <span className="font-medium text-ink">{agentName}</span> wants to spend
+          </p>
+          <p className="font-display text-[56px] font-semibold leading-[0.95] tracking-[-0.045em] text-ink tabular-nums">
+            {formatCents(intent.amount_cents, intent.currency)}
           </p>
         </header>
 
-        <dl className="grid gap-2 text-sm">
-          <div className="flex flex-wrap gap-x-2">
-            <dt className="text-muted-foreground">Requested action</dt>
-            <dd className="font-medium">Purchase {productName}</dd>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 border-t border-line pt-4 text-sm sm:grid-cols-2">
+          <div className="space-y-0.5">
+            <dt className="text-[11px] uppercase tracking-[0.08em] text-ink-3">Requested action</dt>
+            <dd className="font-medium text-ink">Purchase {productName}</dd>
           </div>
-          <div className="flex flex-wrap gap-x-2">
-            <dt className="text-muted-foreground">Merchant</dt>
-            <dd>{merchantName}</dd>
+          <div className="space-y-0.5">
+            <dt className="text-[11px] uppercase tracking-[0.08em] text-ink-3">Merchant</dt>
+            <dd className="text-ink">{merchantName}</dd>
           </div>
-          <div className="flex flex-wrap gap-x-2">
-            <dt className="text-muted-foreground">Amount</dt>
-            <dd className="font-mono">{formatCents(intent.amount_cents, intent.currency)}</dd>
+          <div className="space-y-0.5">
+            <dt className="text-[11px] uppercase tracking-[0.08em] text-ink-3">Amount</dt>
+            <dd className="font-mono text-ink">{formatCents(intent.amount_cents, intent.currency)}</dd>
           </div>
-          <div className="flex flex-wrap gap-x-2">
-            <dt className="text-muted-foreground">Type</dt>
-            <dd>{intent.recurring ? "Recurring" : "One-time purchase"}</dd>
+          <div className="space-y-0.5">
+            <dt className="text-[11px] uppercase tracking-[0.08em] text-ink-3">Type</dt>
+            <dd className="text-ink">{intent.recurring ? "Recurring" : "One-time purchase"}</dd>
           </div>
         </dl>
 
         {checklist.length > 0 ? (
-          <ul className="space-y-1.5 rounded-md border border-border bg-muted/20 px-3 py-2.5 text-sm">
+          <ul className="divide-y divide-line rounded-[6px] border border-line text-sm">
             {checklist.map((line) => (
               <li
                 key={line.text}
                 className={cn(
-                  "flex items-start gap-2",
-                  line.emphasis ? "text-amber-400" : line.ok ? "text-muted-foreground" : "text-red-400",
+                  "flex items-start gap-3 px-3.5 py-2.5",
+                  line.emphasis
+                    ? "bg-waiting-bg font-medium text-waiting"
+                    : line.ok
+                      ? "text-ink-2"
+                      : "bg-blocked-bg text-blocked",
                 )}
               >
                 {line.emphasis ? (
-                  <span className="mt-0.5 shrink-0 font-medium">!</span>
+                  <span
+                    className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[3px] bg-waiting text-[11px] font-bold text-white"
+                    aria-hidden
+                  >
+                    !
+                  </span>
                 ) : line.ok ? (
-                  <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-400" aria-hidden />
+                  <span
+                    className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[3px] bg-executed-bg text-executed"
+                    aria-hidden
+                  >
+                    <Check className="size-3" />
+                  </span>
                 ) : (
-                  <X className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  <span
+                    className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[3px] bg-blocked text-white"
+                    aria-hidden
+                  >
+                    <X className="size-3" />
+                  </span>
                 )}
-                <span>{line.emphasis ? line.text : line.ok ? `✓ ${line.text}` : line.text}</span>
+                <span>{line.text}</span>
               </li>
             ))}
           </ul>
         ) : null}
 
         {error ? (
-          <p className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-400">{error}</p>
+          <p className="rounded-[4px] border border-blocked/30 bg-blocked-bg px-3 py-2 text-sm text-blocked">
+            {error}
+          </p>
         ) : null}
 
         {outcome && outcome.approval_status === "denied" ? (
-          <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          <p className="rounded-[4px] border border-line bg-canvas px-3 py-2.5 text-sm text-ink-2">
             You denied this action. The intent will not execute.
           </p>
         ) : null}
 
         {executed ? (
-          <p className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-400">
-            Payment executed · receipt{" "}
-            <span className="font-mono text-emerald-300">{executed.receipt_id}</span>
-            {" · "}
-            <span className="font-mono">{executed.provider_reference}</span>
-          </p>
+          <div className="space-y-2 rounded-[6px] border border-executed/30 bg-executed-bg px-4 py-3">
+            <p className="flex items-center gap-2 text-sm font-semibold text-executed">
+              <CheckCircle2 className="size-4" aria-hidden />
+              Payment executed
+            </p>
+            <dl className="grid gap-1 font-mono text-xs text-executed">
+              <div className="flex flex-wrap justify-between gap-2">
+                <dt className="opacity-70">receipt</dt>
+                <dd className="break-all">{executed.receipt_id}</dd>
+              </div>
+              <div className="flex flex-wrap justify-between gap-2">
+                <dt className="opacity-70">provider ref</dt>
+                <dd className="break-all">{executed.provider_reference}</dd>
+              </div>
+            </dl>
+          </div>
         ) : null}
 
         {!resolved ? (
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              className="h-12 rounded-[4px] border-line bg-surface px-5 text-ink hover:bg-canvas"
               disabled={loading !== null}
               onClick={() => submit("denied")}
             >
               {loading === "denied" ? <Loader2 className="size-4 animate-spin" /> : null}
               Deny
             </Button>
-            <Button
+            <ArrowButton
               type="button"
-              variant="success"
-              size="sm"
+              variant="primary"
+            size="lg"
               disabled={loading !== null}
               onClick={() => submit("approved")}
             >
-              {loading === "approved" ? <Loader2 className="size-4 animate-spin" /> : null}
+              {loading === "approved" ? (
+                <Loader2 className="mr-2 inline size-4 animate-spin" />
+              ) : null}
               Approve {formatCents(intent.amount_cents, intent.currency)}
-            </Button>
+            </ArrowButton>
           </div>
         ) : null}
       </div>

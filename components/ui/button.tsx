@@ -3,27 +3,22 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm font-medium tracking-[-0.01em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default:
-          "bg-primary text-primary-foreground hover:bg-primary/90 border border-border",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border",
-        outline:
-          "border border-border bg-transparent hover:bg-accent hover:text-accent-foreground",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        destructive:
-          "bg-destructive/15 text-destructive border border-destructive/30 hover:bg-destructive/25",
-        success:
-          "bg-success/15 text-success border border-success/30 hover:bg-success/25",
+        default: "bg-accent text-white hover:bg-accent-hover",
+        secondary: "border border-line bg-surface text-ink hover:border-ink-3",
+        outline: "border border-line bg-transparent text-ink hover:border-ink-3 hover:bg-surface",
+        ghost: "text-ink-2 hover:bg-[#F2F2F2] hover:text-ink",
+        destructive: "bg-inverse text-white hover:bg-[#262626]",
+        success: "bg-executed text-white hover:bg-[#006331]",
       },
       size: {
-        sm: "h-8 px-3 text-xs",
-        md: "h-9 px-4 py-2",
-        lg: "h-10 px-6",
-        icon: "h-9 w-9",
+        sm: "h-8 px-3 text-[13px]",
+        md: "h-10 px-4 text-sm",
+        lg: "h-12 px-6 text-[15px]",
+        icon: "size-10",
       },
     },
     defaultVariants: {

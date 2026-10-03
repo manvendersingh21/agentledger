@@ -4,7 +4,9 @@ export type GuardrailViolation =
   | "MERCHANT_TRUST_UNKNOWN"
   | "PROMPT_INJECTION_DETECTED"
   | "CRYPTO_EXFILTRATION_DETECTED"
-  | "PRICE_ANOMALY";
+  | "PRICE_ANOMALY"
+  | "MERCHANT_NOT_VERIFIED"
+  | "WEBSITE_NOT_ALLOWED";
 
 export interface GuardrailInput {
   agentStatus: "active" | "disabled" | "suspended";
@@ -16,6 +18,7 @@ export interface GuardrailInput {
     priceAnomalyReviewThreshold: number;
     injectionKillThreshold: number;
     killSwitchEnabled: boolean;
+    allowedDomains: string[];
   };
   risk: { promptInjection: number; cryptoExfiltration: number; priceAnomaly: number } | null;
 }
@@ -33,6 +36,21 @@ function domainInOverrides(domain: string | null, overrides: string[]): boolean 
   }
   const normalized = domain.toLowerCase();
   return overrides.some((entry) => entry.toLowerCase() === normalized);
+}
+
+function hostnameAllowed(domain: string | null, allowedDomains: string[]): boolean {
+  if (allowedDomains.length === 0) {
+    return true;
+  }
+  if (domain === null || domain.length === 0) {
+    return false;
+  }
+  const host = domain.trim().toLowerCase();
+  return allowedDomains.some((entry) => {
+    const allowed = entry.trim().toLowerCase();
+    if (!allowed) return false;
+    return host === allowed || host.endsWith(`.${allowed}`);
+  });
 }
 
 export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
@@ -69,6 +87,17 @@ export function evaluateGuardrails(input: GuardrailInput): GuardrailResult {
     minTrustScore: input.policy.minTrustScore,
     overrideApplied: overridePass,
   };
+
+  const websiteAllowed = hostnameAllowed(input.merchant.domain, input.policy.allowedDomains);
+  checks.allowed_websites = {
+    passed: websiteAllowed,
+    domain: input.merchant.domain,
+    allowedDomains: input.policy.allowedDomains,
+    restricted: input.policy.allowedDomains.length > 0,
+  };
+  if (!websiteAllowed) {
+    violations.push("WEBSITE_NOT_ALLOWED");
+  }
 
   if (input.risk === null) {
     requireApproval = true;

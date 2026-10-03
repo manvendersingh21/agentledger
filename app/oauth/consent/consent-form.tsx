@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { ArrowButton } from "@/components/brand/arrow-button";
+import { Eyebrow } from "@/components/brand/eyebrow";
 
 interface AuthorizationDetails {
   authorization_id: string;
@@ -64,81 +65,88 @@ export function ConsentForm({ authorizationId }: { authorizationId: string }) {
   }
 
   return (
-    <div className="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950 p-6">
+    <div className="w-full max-w-md rounded-md border border-line bg-surface p-8">
       {error && (
         <div>
-          <h1 className="text-lg font-semibold text-zinc-50">Authorization unavailable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
-          <p className="mt-4 text-xs text-muted-foreground">
+          <Eyebrow>Authorization</Eyebrow>
+          <h1 className="mt-4 font-display text-3xl font-semibold leading-[0.95] tracking-[-0.045em] text-ink">
+            Authorization unavailable
+          </h1>
+          <p role="alert" className="mt-4 rounded border border-blocked/30 bg-blocked-bg px-3 py-2 text-sm text-blocked">
+            {error}
+          </p>
+          <p className="mt-4 text-xs leading-relaxed text-ink-3">
             The request may have expired or already been resolved. Closing this window is safe: denial is the
             default outcome.
           </p>
         </div>
       )}
 
-      {!error && !details && (
-        <p className="text-sm text-muted-foreground">Loading authorization request…</p>
-      )}
+      {!error && !details && <p className="text-sm text-ink-3">Loading authorization request…</p>}
 
       {!error && details && (
         <>
-          <div className="flex items-center gap-3">
+          <Eyebrow>Agent authorization</Eyebrow>
+          <div className="mt-5 flex items-center gap-4">
             {details.client.logo_uri ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={details.client.logo_uri}
                 alt=""
-                className="h-10 w-10 rounded-md border border-zinc-800 bg-zinc-900 object-contain"
+                className="h-12 w-12 rounded border border-line bg-canvas object-contain"
               />
             ) : (
-              <div className="flex h-10 w-10 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 font-mono text-sm text-zinc-400">
+              <div className="flex h-12 w-12 items-center justify-center rounded bg-accent font-display text-lg font-semibold text-white">
                 {details.client.name.slice(0, 1).toUpperCase()}
               </div>
             )}
-            <div>
-              <h1 className="text-lg font-semibold leading-tight text-zinc-50">
-                Authorize {details.client.name}
+            <div className="min-w-0">
+              <h1 className="font-display text-3xl font-semibold leading-[0.95] tracking-[-0.045em] text-ink">
+                Authorize <span className="text-accent">{details.client.name}</span>
               </h1>
-              <p className="text-xs text-muted-foreground">
-                Signed in as {details.user.email}
-              </p>
+              <p className="mt-1.5 truncate text-xs text-ink-3">Signed in as {details.user.email}</p>
             </div>
           </div>
 
-          <div className="mt-6 space-y-4 text-sm">
+          <div className="mt-8 space-y-4 text-sm">
             <div>
-              <h2 className="mb-2 font-medium text-zinc-200">This agent requests access to</h2>
+              <h2 className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-2">
+                This agent requests access to
+              </h2>
               <ul className="space-y-1.5">
                 {details.scope
                   .split(" ")
                   .filter(Boolean)
                   .map((scope) => (
-                    <li key={scope} className="rounded border border-zinc-800 bg-zinc-900/50 px-3 py-1.5 font-mono text-xs text-zinc-300">
+                    <li
+                      key={scope}
+                      className="rounded border border-line bg-canvas px-3 py-2 font-mono text-xs text-ink"
+                    >
                       {scope}
                     </li>
                   ))}
               </ul>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs leading-relaxed text-ink-3">
               It will be redirected to{" "}
-              <span className="font-mono text-zinc-400">{details.redirect_uri}</span> after your decision.
+              <span className="break-all font-mono text-ink-2">{details.redirect_uri}</span> after your decision.
             </p>
           </div>
 
-          <div className="mt-6 rounded-md border border-zinc-800 bg-zinc-900/40 p-4">
-            <p className="text-sm text-zinc-300">
+          <div className="mt-6 rounded bg-inverse p-4">
+            <p className="text-sm leading-relaxed text-white/85">
               This agent will act as you, but every purchase is still limited by your delegation policy and may
               require your approval.
             </p>
           </div>
 
-          <div className="mt-6 flex justify-end gap-3">
-            <Button variant="destructive" size="md" disabled={deciding} onClick={() => decide(false)}>
+          <div className="mt-8 flex flex-wrap justify-end gap-3">
+            <ArrowButton variant="inverse" size="md" disabled={deciding} onClick={() => decide(false)}>
               Deny
-            </Button>
-            <Button variant="success" size="md" disabled={deciding} onClick={() => decide(true)}>
+            </ArrowButton>
+            <ArrowButton size="md" disabled={deciding} onClick={() => decide(true)}>
               {deciding ? "Working…" : "Approve"}
-            </Button>
+            </ArrowButton>
           </div>
         </>
       )}

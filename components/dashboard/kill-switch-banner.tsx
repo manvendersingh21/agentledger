@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { Loader2, OctagonAlert } from "lucide-react";
 import type { AgentRow } from "@/lib/data/types";
-import { useLedgerRealtime } from "@/lib/realtime/use-ledger-realtime";
+import { useLedgerRealtime, type LedgerChange } from "@/lib/realtime/use-ledger-realtime";
 import { Button } from "@/components/ui/button";
-import { cn, formatDateTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { LocalDateTime } from "@/components/local-time";
 
 export type SuspendedAgentSummary = Pick<
   AgentRow,
@@ -46,19 +47,18 @@ export function ReenableAgentButton({
   }
 
   return (
-    <span className={className}>
+    <span className={cn("inline-flex flex-wrap items-center gap-2", className)}>
       <Button
         type="button"
-        variant="outline"
         size={size}
         disabled={loading}
-        className="border-red-400/40 bg-red-950/40 text-red-100 hover:bg-red-950/60"
+        className="rounded border border-inverse bg-inverse font-semibold text-white hover:bg-ink hover:text-white"
         onClick={() => void reenable()}
       >
         {loading ? <Loader2 className="size-4 animate-spin" /> : null}
         Re-enable agent
       </Button>
-      {error ? <span className="ml-2 text-xs text-red-200">{error}</span> : null}
+      {error ? <span className="text-xs font-medium text-current">{error}</span> : null}
     </span>
   );
 }
@@ -72,7 +72,7 @@ export function KillSwitchBanner({ userId, suspendedAgents }: KillSwitchBannerPr
   const router = useRouter();
 
   const onRealtime = useCallback(
-    (change: { table: string }) => {
+    (change: LedgerChange) => {
       if (change.table === "agents") {
         router.refresh();
       }
@@ -80,27 +80,33 @@ export function KillSwitchBanner({ userId, suspendedAgents }: KillSwitchBannerPr
     [router],
   );
 
-  useLedgerRealtime(userId, onRealtime as Parameters<typeof useLedgerRealtime>[1]);
+  useLedgerRealtime(userId, onRealtime);
 
   if (suspendedAgents.length === 0) return null;
 
   const primary = suspendedAgents[0];
   const reason = primary.suspended_reason?.trim() || "Kill switch triggered";
-  const when = primary.suspended_at ? formatDateTime(primary.suspended_at) : "recently";
+  const when = primary.suspended_at ? (
+    <LocalDateTime iso={primary.suspended_at} className="font-mono" />
+  ) : (
+    "recently"
+  );
 
   return (
-    <div
-      role="alert"
-      className="border-b border-red-500/50 bg-red-600/15 px-4 py-3 text-red-100 md:px-8"
-    >
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div role="alert" className="w-full bg-blocked text-white">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
         <div className="flex min-w-0 items-start gap-3">
-          <OctagonAlert className="mt-0.5 size-5 shrink-0 text-red-400" aria-hidden />
+          <span className="inline-flex size-10 shrink-0 items-center justify-center rounded bg-white text-blocked">
+            <OctagonAlert className="size-5" aria-hidden />
+          </span>
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-semibold tracking-tight text-red-300">
-              AGENT HALTED — AgentLedger kill switch suspended {primary.name}
+            <p className="font-display text-[20px] font-bold leading-tight tracking-[-0.02em] md:text-[22px]">
+              <span className="mr-2 inline-block rounded-sm bg-white px-1.5 py-0.5 align-middle text-[11px] font-bold uppercase tracking-[0.14em] text-blocked">
+                Agent halted
+              </span>
+              AgentLedger kill switch suspended {primary.name}
             </p>
-            <p className="text-xs text-red-200/90">
+            <p className="text-[13px] text-white/85">
               {reason} · {when}
               {suspendedAgents.length > 1
                 ? ` · +${suspendedAgents.length - 1} more agent${suspendedAgents.length > 2 ? "s" : ""}`
@@ -108,12 +114,10 @@ export function KillSwitchBanner({ userId, suspendedAgents }: KillSwitchBannerPr
             </p>
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 text-white">
           <Link
             href="/dashboard/audit"
-            className={cn(
-              "inline-flex h-8 items-center justify-center rounded-md border border-red-400/40 bg-transparent px-3 text-xs font-medium text-red-100 hover:bg-red-950/40",
-            )}
+            className="inline-flex h-8 items-center justify-center rounded border border-white bg-white px-3 text-xs font-semibold text-blocked transition-colors hover:bg-blocked-bg"
           >
             Review timeline
           </Link>

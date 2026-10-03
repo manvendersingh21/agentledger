@@ -44,6 +44,7 @@ export function DemoResetButton() {
           type="button"
           variant="outline"
           size="sm"
+          className="h-10 rounded border-line bg-surface px-4 text-ink hover:border-ink hover:bg-surface"
           onClick={() => {
             setMessage(null);
             setConfirming(true);
@@ -55,8 +56,8 @@ export function DemoResetButton() {
         {message ? (
           <p
             className={cn(
-              "text-sm",
-              message.tone === "success" ? "text-emerald-400" : "text-red-400",
+              "text-[13px] font-medium",
+              message.tone === "success" ? "text-executed" : "text-blocked",
             )}
           >
             {message.text}
@@ -67,8 +68,9 @@ export function DemoResetButton() {
   }
 
   return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-      <p className="text-sm text-foreground">
+    <div className="max-w-xl rounded-md border border-waiting/30 bg-waiting-bg p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-waiting">Confirm reset</p>
+      <p className="mt-2 text-[14px] text-ink">
         Reset all intents, approvals, executions, and audit events for your account? Delegation
         limits return to demo defaults.
       </p>
@@ -78,6 +80,7 @@ export function DemoResetButton() {
           variant="destructive"
           size="sm"
           disabled={loading}
+          className="h-10 rounded border-inverse bg-inverse px-4 text-white hover:bg-ink"
           onClick={() => void runReset()}
         >
           {loading ? <Loader2 className="size-3.5 animate-spin" /> : null}
@@ -88,13 +91,14 @@ export function DemoResetButton() {
           variant="ghost"
           size="sm"
           disabled={loading}
+          className="h-10 rounded border border-line bg-surface px-4 text-ink hover:bg-canvas"
           onClick={() => setConfirming(false)}
         >
           Cancel
         </Button>
       </div>
       {message?.tone === "error" ? (
-        <p className="mt-2 text-sm text-red-400">{message.text}</p>
+        <p className="mt-2 text-[13px] font-medium text-blocked">{message.text}</p>
       ) : null}
     </div>
   );

@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { ArrowButton } from "@/components/brand/arrow-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -80,9 +80,11 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       <div className="space-y-2">
-        <Label htmlFor="email">Email</Label>
+        <Label htmlFor="email" className="text-ink">
+          Email
+        </Label>
         <Input
           id="email"
           type="email"
@@ -91,10 +93,13 @@ export function LoginForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@company.com"
+          className="h-12"
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="password">Password</Label>
+        <Label htmlFor="password" className="text-ink">
+          Password
+        </Label>
         <Input
           id="password"
           type="password"
@@ -103,23 +108,34 @@ export function LoginForm() {
           minLength={6}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          className="h-12"
         />
       </div>
 
       {error ? (
-        <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+        <p role="alert" className="rounded border border-blocked/30 bg-blocked-bg px-3 py-2 text-sm text-blocked">
           {error}
         </p>
       ) : null}
 
-      <Button type="submit" disabled={loading} className="w-full">
+      <ArrowButton type="submit" disabled={loading} className="w-full [&>span:first-child]:flex-1">
         {loading ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
-      </Button>
+      </ArrowButton>
 
-      <Button
+      {demoMode ? (
+        <ArrowButton
+          variant="secondary"
+          disabled={loading}
+          onClick={handleDemo}
+          className="w-full [&>span:first-child]:flex-1"
+        >
+          Use demo account
+        </ArrowButton>
+      ) : null}
+
+      <button
         type="button"
-        variant="ghost"
-        className="w-full text-muted-foreground"
+        className="text-sm text-ink-2 underline-offset-4 transition-colors hover:text-accent hover:underline disabled:opacity-50"
         disabled={loading}
         onClick={() => {
           setMode((m) => (m === "signin" ? "signup" : "signin"));
@@ -127,19 +143,7 @@ export function LoginForm() {
         }}
       >
         {mode === "signin" ? "Need an account? Sign up" : "Already have an account? Sign in"}
-      </Button>
-
-      {demoMode ? (
-        <Button
-          type="button"
-          variant="secondary"
-          className="w-full"
-          disabled={loading}
-          onClick={handleDemo}
-        >
-          Use demo account
-        </Button>
-      ) : null}
+      </button>
     </form>
   );
 }
