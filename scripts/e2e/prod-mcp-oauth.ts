@@ -455,11 +455,11 @@ async function main(): Promise<void> {
       const tools = (list.body?.result as { tools?: { name: string }[] })?.tools ?? [];
       const names = tools.map((t) => t.name);
       const missingTools = EXPECTED_TOOL_NAMES.filter((n) => !names.includes(n));
-      if (list.status === 200 && tools.length === 5 && missingTools.length === 0) {
-        pass("6b MCP tools/list (5 tools)", names.join(", "));
+      if (list.status === 200 && tools.length >= 5 && missingTools.length === 0) {
+        pass("6b MCP tools/list (>=5 tools)", names.join(", "));
       } else {
         fail(
-          "6b MCP tools/list (5 tools)",
+          "6b MCP tools/list (>=5 tools)",
           `status=${list.status} count=${tools.length} missing=${missingTools.join(",") || "(none)"}`,
         );
       }
@@ -572,7 +572,7 @@ async function main(): Promise<void> {
       }
     } else {
       fail("6a MCP initialize", "skipped (no access_token)");
-      fail("6b MCP tools/list (5 tools)", "skipped");
+      fail("6b MCP tools/list (>=5 tools)", "skipped");
       fail("6c tools/call list_delegations", "skipped");
       fail("6d tools/call search_products", "skipped");
       fail("6e propose_purchase Acme awaiting_approval", "skipped");

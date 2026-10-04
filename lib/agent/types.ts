@@ -1,4 +1,5 @@
 // Agent abstraction. The model is untrusted: it only gets AgentLedger tools, never DB/Stripe credentials.
+import type { ProductCategoryName } from "@/lib/domain/categories";
 
 export type AgentActivity =
   | { type: "status"; message: string }
@@ -29,6 +30,7 @@ export interface AgentTools {
     claimed_price_cents: number;
     quantity?: number;
     reason?: string;
+    category?: ProductCategoryName;
   }): Promise<unknown>;
   get_action_status(input: { intent_id: string }): Promise<unknown>;
   get_receipt(input: { receipt_id?: string; intent_id?: string }): Promise<unknown>;

@@ -1,0 +1,23 @@
+STEP                                                 RESULT  DETAIL
+---------------------------------------------------  ----  ----------------------------------------
+1a MCP GET 401                                       PASS  status=401
+1b WWW-Authenticate resource_metadata                PASS  https://lxxzfaitasfjsqcrhven.supabase.co/functions/v1/mcp/oauth-protected-resource
+1c fetch protected-resource metadata                 PASS  resource=https://lxxzfaitasfjsqcrhven.supabase.co/functions/v1/mcp
+1d authorization server URL                          PASS  https://lxxzfaitasfjsqcrhven.supabase.co/auth/v1
+1e RFC8414 authorization-server metadata             PASS  issuer=https://lxxzfaitasfjsqcrhven.supabase.co/auth/v1
+2 DCR register client                                PASS  client_id=1327537b-5353-4092-8d28-b9e0cd9eee3b
+3a authorize redirects to consent                    PASS  /oauth/consent?authorization_id=lxfics44eem2zqevoxqrj3k2ulvg5fyn
+3b capture authorization_id                          PASS  lxfics44eem2zqevoxqrj3k2ulvg5fyn
+4a signUp test user                                  PASS  user_id=9c9edcaa-4d7e-4361-ba31-e8e6cc2afe11 (session from signUp)
+4b getAuthorizationDetails                           PASS  client=AgentLedger E2E MCP client
+4c approveAuthorization                              PASS  redirect_url contains code
+5 token exchange                                     PASS  access_token received
+6a MCP initialize                                    PASS  ok
+6b MCP tools/list (>=5 tools)                        PASS  list_delegations, search_products, plan_recipe, propose_purchase, check_merchant, propose_external_purchase, get_action_status, get_receipt
+6c tools/call list_delegations                       PASS  ok
+6d tools/call search_products                        PASS  hits=5
+6e propose_purchase Acme awaiting_approval           PASS  20000000-0000-4000-8000-000000000001
+6f propose_purchase Evil Cloud denied + kill switch  PASS  TRANSACTION_LIMIT_EXCEEDED, DAILY_LIMIT_EXCEEDED, RECURRING_NOT_ALLOWED, MERCHANT_NOT_ALLOWED, MERCHANT_TRUST_TOO_LOW, PROMPT_INJECTION_DETECTED, PRICE_ANOMALY, MERCHANT_RISK_HIGH; kill_switch.triggered=true
+6g propose_purchase Acme denied (AGENT_SUSPENDED)    PASS  AGENT_SUSPENDED
+7 consent unauthenticated → login                    PASS  status=307
+cleanup deleteUser                                   PASS  e2e-mcp-oauth-9b612f03c7d6b9ea@agentledger-e2e.invalid

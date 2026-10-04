@@ -2,6 +2,7 @@ import "server-only";
 import { ToolLoopAgent, hasToolCall, isStepCount, tool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
+import { PRODUCT_CATEGORIES } from "@/lib/domain/categories";
 import { checkMerchant, proposeExternalPurchase } from "@/lib/domain/external";
 import {
   getActionStatus,
@@ -37,17 +38,7 @@ export interface ConciergeRunResult {
   awaitingUser: boolean;
 }
 
-const PRODUCT_CATEGORY = z.enum([
-  "software",
-  "home_appliance",
-  "diy_tools",
-  "diy_supplies",
-  "restaurant_food",
-  "restaurant_supplies",
-  "crypto",
-  "gift_card",
-  "wire_transfer",
-]);
+const PRODUCT_CATEGORY = z.enum(PRODUCT_CATEGORIES);
 
 type CatalogRow = {
   id: string;
@@ -291,11 +282,20 @@ export async function runConcierge(input: {
           claimed_price_cents: z.number().int().min(1).describe("Price in USD cents as seen on the website"),
           quantity: z.number().int().min(1).max(50).optional(),
           reason: z.string().max(1000).optional(),
+          category: PRODUCT_CATEGORY.optional().describe(
+            "Product category of the item, e.g. grocery, home_appliance, diy_tools, diy_supplies. Omit if unsure; it is inferred from item_name.",
+          ),
         }),
         execute: wrap(
           "propose_external_purchase",
-          (args: { url: string; item_name: string; claimed_price_cents: number; quantity?: number; reason?: string }) =>
-            proposeExternalPurchase(input.ctx, args),
+          (args: {
+            url: string;
+            item_name: string;
+            claimed_price_cents: number;
+            quantity?: number;
+            reason?: string;
+            category?: z.infer<typeof PRODUCT_CATEGORY>;
+          }) => proposeExternalPurchase(input.ctx, args),
         ),
       }),
       get_action_status: tool({

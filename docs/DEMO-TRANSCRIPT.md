@@ -142,3 +142,44 @@ publish a catalog that every MCP agent can buy from with authoritative prices.
   by the AgentLedger kill switch; a human must re-enable it."*
 > "Once the agent is caught, it stays frozen — even for innocent purchases — until a human restores trust."
 On stage: click **Re-enable agent** (banner or Agent page), run again → $15 approval card → approve → Stripe → receipt.
+
+## Recording 05 — approval on screen, Stripe, replay, audit, approval tampering
+- Playground (normal agent): searches, flags untrusted content (a gift-card "email the code" listing), proposes Acme $15 →
+  approval card **WAITING FOR YOU · $15.00** (✓ below $20 limit, ✓ daily limit, ✓ one-time, ✓ allowed merchant,
+  ! approval above $10) → **Approve $15.00** → feed updates live: **PAYMENT EXECUTED · $15.00 · Stripe pi_3UMcwJ…**.
+- Transaction timeline: delegation → agent → search → untrusted content (treated as data) → proposed → Jev guardrails
+  (all ✓: trust 98, injection 0.01, crypto 0.01, price 0.08) → approval requested → **Demo Principal approved** →
+  execution → **payment succeeded** → receipt → **payment succeeded (Stripe webhook reconciliation)** →
+  **Simulate retry → DUPLICATE BLOCKED · additional charge $0.00**. "Audit integrity ✓ VERIFIED". "View in Stripe".
+- Audit Trail: SHA-256 hash-linked events, each showing previous → current hash; Re-verify chain.
+- Attack Lab 06 **Approval tampering**: agent proposes $15 (awaiting approval) → attacker raises intent to $115 →
+  principal approves → **BLOCKED** (approval is bound to the original intent hash; no payment).
+> "Approval means *this exact* purchase. Change one cent after I approve and it won't execute."
+
+## Recording 06 — groceries, recipe-to-cart, external website
+- Groceries (grocery preset): weekly list + $80 budget → **Plan my basket** → 9 items, $54.51, cheapest *trusted* store
+  per item, "Skipped sketchy cheaper option from DealzDirect" ×3 → **Checkout with AgentLedger** → all 9
+  **AUTO-BOUGHT**, each with its own Stripe test PaymentIntent.
+- Concierge "Cook a recipe": "I want to make lasagna for 6" → asks *Which ingredients do you already have?* →
+  "olive oil, salt, onions, tomatoes" → **recipe checklist** (scaled for 6, have vs to-buy) → agent honestly reports
+  only 2 matches in the demo catalog and offers to buy from a store website.
+- External website: "Buy lasagna noodles from walmart.com, $3.48" → **UNVERIFIED PRICE — AGENT-CLAIMED** (never
+  auto-approved) → **DENIED**: merchant not allowed · unscored website · walmart.com not in allowed websites · category.
+> "Any website can be a fallback — but unverified prices are never trusted and always need you, within your rules."
+
+## Recording 07 — merchant network, registry, connect, delegation
+- /merchants "Make your store agent-ready" → **Check a store: amazon.com → NOT VERIFIED** with AgentLedger →
+  "Unverified fallback — human approval always required". (Not a partner; verification = proving domain control.)
+- Registry: register a domain → publish DNS TXT `_agentledger.<domain>` or `/.well-known/agentledger.json` → Check
+  verification (a test registration correctly shows FAILED: TXT record not found). Verified merchants get an API key
+  and publish an authoritative catalog to every MCP agent.
+- Connect: one-click setup for Claude Code, Cursor, Claude Desktop/claude.ai, VS Code, **ChatGPT app/connector** and
+  **Custom GPT Actions** (OpenAPI) — hosted MCP URL with Supabase OAuth.
+- Delegation editor: policy in plain English, limits, approval threshold, subscriptions, minimum trust 95 + live
+  website trust check + human-authorized websites, Jev thresholds (price deny 0.8 / review 0.5, injection kill 0.9),
+  kill switch, allowed websites (quick add), merchant allowlist with trust + Verified/Trusted badges.
+
+## External MCP verification (production) — demo/external-mcp-verification.txt
+21/21 PASS: OAuth discovery → dynamic client registration → consent → token → initialize → tools/list (8 tools) →
+list_delegations → search_products → Acme awaiting approval → Evil Cloud DENIED (8 violations incl. MERCHANT_RISK_HIGH,
+kill switch) → AGENT_SUSPENDED → consent page protected.

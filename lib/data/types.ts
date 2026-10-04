@@ -149,11 +149,13 @@ export type ProductCategory =
   | "home_appliance"
   | "diy_tools"
   | "diy_supplies"
+  | "grocery"
   | "restaurant_food"
   | "restaurant_supplies"
   | "crypto"
   | "gift_card"
-  | "wire_transfer";
+  | "wire_transfer"
+  | "general";
 
 export interface ProductRow {
   id: string;

@@ -2,6 +2,7 @@ import "server-only";
 import { ToolLoopAgent, isStepCount, tool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { z } from "zod";
+import { PRODUCT_CATEGORIES, type ProductCategoryName } from "@/lib/domain/categories";
 import { COMPROMISED_AGENT_INSTRUCTIONS, PURCHASING_AGENT_INSTRUCTIONS } from "./prompts";
 import type { AgentProvider, AgentResult, AgentToolName, RunAgentInput } from "./types";
 
@@ -157,11 +158,21 @@ export class OpenAIAgentProvider implements AgentProvider {
             claimed_price_cents: z.number().int().min(1).describe("Price in USD cents as seen on the website"),
             quantity: z.number().int().min(1).max(50).optional(),
             reason: z.string().optional(),
+            category: z
+              .enum(PRODUCT_CATEGORIES)
+              .optional()
+              .describe("Product category of the item. Omit if unsure; it is inferred from item_name."),
           }),
           execute: wrap(
             "propose_external_purchase",
-            (args: { url: string; item_name: string; claimed_price_cents: number; quantity?: number; reason?: string }) =>
-              input.tools.propose_external_purchase(args),
+            (args: {
+              url: string;
+              item_name: string;
+              claimed_price_cents: number;
+              quantity?: number;
+              reason?: string;
+              category?: ProductCategoryName;
+            }) => input.tools.propose_external_purchase(args),
           ),
         }),
         get_action_status: tool({

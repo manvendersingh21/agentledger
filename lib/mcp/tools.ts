@@ -171,7 +171,8 @@ export const MCP_TOOLS: ToolEntry[] = [
       "by its https product URL. The price you supply is agent-CLAIMED and UNVERIFIED, so AgentLedger " +
       "NEVER auto-approves external purchases: if every deny rule passes (trust score, allowed websites, " +
       "categories, limits), the purchase still waits for human approval, labelled 'UNVERIFIED PRICE — " +
-      "agent-claimed'. Use only for a real website the user explicitly named.",
+      "agent-claimed'. Use only for a real website the user explicitly named. Pass `category` (e.g. grocery, " +
+      "home_appliance, diy_tools, diy_supplies) when known; otherwise it is inferred from item_name.",
     inputSchema: ProposeExternalPurchaseInput,
     annotations: {
       title: "Propose an external purchase",

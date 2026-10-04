@@ -12,6 +12,7 @@
 // Runtime-agnostic (Next.js server + Supabase Edge/Deno MCP): relative `.ts` imports, no Node built-ins.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { PRODUCT_CATEGORIES, resolveExternalCategory, type ProductCategoryName } from "./categories.ts";
 import { proposePurchase, type DomainContext, type ProposeResult } from "./pipeline.ts";
 import { formatUsd } from "./products.ts";
 import { UNVERIFIED_PRICE_LABEL } from "../policy/guardrails.ts";
@@ -55,6 +56,12 @@ export const ProposeExternalPurchaseInput = z.object({
     .describe("Price in USD cents as seen on the website. Agent-claimed and UNVERIFIED; a human must confirm it."),
   quantity: z.number().int().min(1).max(50).optional().describe("Quantity (default 1)"),
   reason: z.string().max(1000).optional().describe("Why this external purchase is needed; recorded in the audit log"),
+  category: z
+    .enum(PRODUCT_CATEGORIES)
+    .optional()
+    .describe(
+      "Product category of the item (e.g. grocery, home_appliance, diy_tools, diy_supplies). Omit if unsure; it is inferred from item_name.",
+    ),
 });
 export type ProposeExternalPurchaseInput = z.input<typeof ProposeExternalPurchaseInput>;
 
@@ -252,7 +259,7 @@ async function ensureExternalProduct(
   db: SupabaseClient,
   merchantId: string,
   url: string,
-  input: { item_name: string; claimed_price_cents: number },
+  input: { item_name: string; claimed_price_cents: number; category: ProductCategoryName },
 ): Promise<string> {
   const { data: existing, error: lookupError } = await db
     .from("products")
@@ -262,6 +269,7 @@ async function ensureExternalProduct(
     .eq("external_url", url)
     .eq("name", input.item_name)
     .eq("price_cents", input.claimed_price_cents)
+    .eq("category", input.category)
     .eq("active", true)
     .order("created_at", { ascending: false })
     .limit(1);
@@ -280,6 +288,7 @@ async function ensureExternalProduct(
         "a human must approve any purchase of it.",
       price_cents: input.claimed_price_cents,
       currency: "usd",
+      category: input.category,
       recurring: false,
       metadata: { external: true, source_url: url, claimed_price_cents: input.claimed_price_cents },
       active: true,
@@ -349,7 +358,11 @@ export async function proposeExternalPurchase(
 
   let productId: string;
   try {
-    productId = await ensureExternalProduct(ctx.db, merchant.id, parsedUrl.url, input);
+    productId = await ensureExternalProduct(ctx.db, merchant.id, parsedUrl.url, {
+      item_name: input.item_name,
+      claimed_price_cents: input.claimed_price_cents,
+      category: resolveExternalCategory(input.item_name, input.category),
+    });
   } catch (error) {
     console.error(
       JSON.stringify({ scope: "agentledger:external", message: "external product create failed", domain: parsedUrl.domain, error: String(error) }),
