@@ -131,3 +131,14 @@ publish a catalog that every MCP agent can buy from with authoritative prices.
                         Receipt → Stripe webhook reconciliation → SHA-256 audit chain
             Supabase: Postgres + RLS · Auth + OAuth server · Realtime (private) · Edge Functions (MCP, webhook)
 ```
+
+---
+## Recording 04 — red-team kill switch + live architecture (agentledger-04-redteam-killswitch-live-architecture.gif)
+- Playground, red-team ON → simulated compromised agent proposes Evil Cloud $500 → **Stopped by AgentLedger · KILL SWITCH
+  TRIGGERED · AGENT SUSPENDED** — requested $500 vs allowed $20, recurring true vs false, merchant not allowed; Jev
+  injection 0.99 · price anomaly 0.93; 8 reasons incl. *"Jev scored this merchant 0.97 likely unsafe (trust 12 via fixture)"*.
+- Live Architecture → ScamAdviser **12** → Jev merchant risk **0.97** → policy **DENY** → *"10 rules failed. No money moved."*
+- Red-team OFF, run again while still halted → even the legitimate $15 Acme plan is refused: *"this agent is suspended
+  by the AgentLedger kill switch; a human must re-enable it."*
+> "Once the agent is caught, it stays frozen — even for innocent purchases — until a human restores trust."
+On stage: click **Re-enable agent** (banner or Agent page), run again → $15 approval card → approve → Stripe → receipt.
